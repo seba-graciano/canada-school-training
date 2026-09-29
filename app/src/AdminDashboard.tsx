@@ -6,14 +6,14 @@ import { useApp } from './AppContext'
 
 const PAGE_SIZE = 50
 
-export default function AdminDashboard(props: any) {
+export default function AdminDashboard() {
   const [alumnos, setAlumnos] = useState<any>([])
   const [alumnosFiltrados, setAlumnosFiltrados] = useState<any>([])
   const [cuotas, setCuotas] = useState<any>([])
   const [tutores, setTutores] = useState<any>([])
   const [pagos, setPagos] = useState<any>([])
   const [loading, setLoading] = useState(true)
-  const { setFiltro } = useApp()
+  const { user, userRole, logout, setFiltro } = useApp()
   const [contador, setContador] = useState(0)
   const [detalle, setDetalle] = useState<any>(null)
   const [nuevoNombre, setNuevoNombre] = useState('')
@@ -23,6 +23,11 @@ export default function AdminDashboard(props: any) {
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
+
+  const isAdmin = userRole === 'admin'
+  const isSecretaria = userRole === 'secretaria'
+  const canManageCuotas = isAdmin || isSecretaria
+  const canCreateAlumno = isAdmin || isSecretaria
 
   useEffect(() => {
     cargar()
@@ -62,13 +67,13 @@ export default function AdminDashboard(props: any) {
       const todasLasCuotas = cuotasRes.data || []
 
       setAlumnos(data)
-setAlumnosFiltrados(data)
-    setCuotas(todasLasCuotas)
-    setTutores(tut.data)
-    setPagos(pag.data)
-    setCurrentPage(1)
-    setTotalPages(Math.ceil(data.length / PAGE_SIZE))
-    setLoading(false)
+      setAlumnosFiltrados(data)
+      setCuotas(todasLasCuotas)
+      setTutores(tut.data)
+      setPagos(pag.data)
+      setCurrentPage(1)
+      setTotalPages(Math.ceil(data.length / PAGE_SIZE))
+      setLoading(false)
     } catch (e) {
       setLoading(false)
     }
@@ -240,24 +245,30 @@ setAlumnosFiltrados(data)
     return <div className="spin">Cargando alumnos...</div>
   }
 
-  const usuario = props.user as unknown as { rol: string }
   const paginatedAlumnos = getPaginatedAlumnos()
   const totalRecords = alumnosFiltrados.length
   const startRecord = totalRecords > 0 ? (currentPage - 1) * PAGE_SIZE + 1 : 0
   const endRecord = Math.min(currentPage * PAGE_SIZE, totalRecords)
+  const roleLabel = userRole === 'admin' ? 'Administrador' : userRole === 'secretaria' ? 'Secretaría' : 'Tutor'
 
   return (
     <div style={{ padding: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
         <div style={{ fontSize: 22, color: '#c0142c', fontWeight: 'bold' }}>
           <Icons.FaSchool style={{ verticalAlign: 'middle', marginRight: 8 }} />
-          Canada School - Panel {usuario.rol}
+          Canada School - Panel {roleLabel}
         </div>
-        <div style={{ fontSize: 12, color: '#999' }}>refresh #{contador}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 15 }}>
+          <div style={{ fontSize: 12, color: '#999' }}>
+            {user?.email} <span style={{ marginLeft: 8, color: '#c0142c' }}>●</span>
+          </div>
+          <button className="btn" style={{ fontSize: 12, padding: '4px 10px' }} onClick={logout}>Salir</button>
+          <div style={{ fontSize: 12, color: '#999' }}>refresh #{contador}</div>
+        </div>
       </div>
 
       <div style={{ marginBottom: 15 }}>
-        <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <input
             placeholder="Buscar alumno..."
             value={searchQuery}
@@ -266,7 +277,9 @@ setAlumnosFiltrados(data)
             style={{ padding: 8, width: 260 }}
           />
           <button type="submit" className="btn">Buscar</button>
-          <button className="btn" style={{ marginLeft: 10 }} onClick={aumentarCuotas}>Aplicar aumento 15%</button>
+          {canManageCuotas && (
+            <button className="btn" style={{ marginLeft: 10 }} onClick={aumentarCuotas}>Aplicar aumento 15%</button>
+          )}
         </form>
       </div>
 
@@ -277,14 +290,16 @@ setAlumnosFiltrados(data)
         </div>
       )}
 
-      <div style={{ marginBottom: 15, background: '#fff', padding: 10 }}>
-        <b>Nuevo alumno:</b>
-        <input placeholder="Nombre" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} style={{ marginLeft: 8 }} />
-        <input placeholder="Apellido" value={nuevoApellido} onChange={(e) => setNuevoApellido(e.target.value)} style={{ marginLeft: 8 }} />
-        <input placeholder="DNI" value={nuevoDni} onChange={(e) => setNuevoDni(e.target.value)} style={{ marginLeft: 8 }} />
-        <input placeholder="Arancel" value={nuevoArancel} onChange={(e) => setNuevoArancel(e.target.value)} style={{ marginLeft: 8, width: 90 }} />
-        <button className="btn" style={{ marginLeft: 8 }} onClick={crearAlumno}>Crear</button>
-      </div>
+      {canCreateAlumno && (
+        <div style={{ marginBottom: 15, background: '#fff', padding: 10 }}>
+          <b>Nuevo alumno:</b>
+          <input placeholder="Nombre" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} style={{ marginLeft: 8 }} />
+          <input placeholder="Apellido" value={nuevoApellido} onChange={(e) => setNuevoApellido(e.target.value)} style={{ marginLeft: 8 }} />
+          <input placeholder="DNI" value={nuevoDni} onChange={(e) => setNuevoDni(e.target.value)} style={{ marginLeft: 8 }} />
+          <input placeholder="Arancel" value={nuevoArancel} onChange={(e) => setNuevoArancel(e.target.value)} style={{ marginLeft: 8, width: 90 }} />
+          <button className="btn" style={{ marginLeft: 8 }} onClick={crearAlumno}>Crear</button>
+        </div>
+      )}
 
       <table>
         <thead>
@@ -320,7 +335,7 @@ setAlumnosFiltrados(data)
               <td style={{ color: moraDe(a) > 0 ? '#c0142c' : '#999' }}>${moraDe(a)}</td>
               <td style={{ color: deudaDe(a) > 0 ? 'red' : 'green' }}>${deudaDe(a)}</td>
               <td>
-                {cuotas.filter((c: any) => c.alumno_id == a.id && c.estado != 'pagado').map((c: any) => (
+                {canManageCuotas && cuotas.filter((c: any) => c.alumno_id == a.id && c.estado != 'pagado').map((c: any) => (
                   <button key={c.id} className="btn" style={{ marginRight: 4, fontSize: 11, padding: '3px 6px' }} onClick={() => cobrar(c)}>
                     Cobrar {c.mes}/{c.anio}
                   </button>
