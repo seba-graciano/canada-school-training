@@ -166,9 +166,10 @@ setAlumnosFiltrados(data)
   }
 
   function hermanos(al: any) {
+    if (al.tutor_id == null) return 1
     let n = 0
     for (let i = 0; i < alumnos.length; i++) {
-      if (alumnos[i].apellido == al.apellido) n++
+      if (alumnos[i].tutor_id == al.tutor_id) n++
     }
     return n
   }
