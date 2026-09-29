@@ -4,6 +4,8 @@ import _ from 'lodash'
 import * as Icons from 'react-icons/fa'
 import { useApp } from './AppContext'
 
+const PAGE_SIZE = 50
+
 export default function AdminDashboard(props: any) {
   const [alumnos, setAlumnos] = useState<any>([])
   const [alumnosFiltrados, setAlumnosFiltrados] = useState<any>([])
@@ -11,27 +13,37 @@ export default function AdminDashboard(props: any) {
   const [tutores, setTutores] = useState<any>([])
   const [pagos, setPagos] = useState<any>([])
   const [loading, setLoading] = useState(true)
-  const { filtro, setFiltro } = useApp()
+  const { setFiltro } = useApp()
   const [contador, setContador] = useState(0)
   const [detalle, setDetalle] = useState<any>(null)
   const [nuevoNombre, setNuevoNombre] = useState('')
   const [nuevoApellido, setNuevoApellido] = useState('')
   const [nuevoDni, setNuevoDni] = useState('')
   const [nuevoArancel, setNuevoArancel] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
 
   useEffect(() => {
     cargar()
 
-    // me suscribo a los pagos para refrescar la caja en tiempo real
-    supabase.channel('pagos-live').on('postgres_changes', { event: '*', schema: 'public', table: 'pagos' }, (p: any) => {
-      console.log('nuevo pago', p)
-      cargar()
-    }).subscribe()
+    const channel = supabase.channel('pagos-live').on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'pagos' },
+      (p: any) => {
+        console.log('nuevo pago', p)
+        cargar()
+      }
+    ).subscribe()
 
-    // contador visual de refrescos de la pantalla
-    setInterval(() => {
-      setContador(contador + 1)
+    const intervalId = setInterval(() => {
+      setContador(c => c + 1)
     }, 5000)
+
+    return () => {
+      supabase.removeChannel(channel)
+      clearInterval(intervalId)
+    }
   }, [])
 
   async function cargar() {
@@ -41,35 +53,80 @@ export default function AdminDashboard(props: any) {
       const data: any = res.data
       const tut = await supabase.from('tutores').select('*')
       const pag = await supabase.from('pagos').select('*')
-      let todasLasCuotas: any = []
-      // recorro alumno por alumno para traer sus cuotas (queda más claro de leer)
-      for (let i = 0; i < data.length; i++) {
-        const c = await supabase.from('cuotas').select('*').eq('alumno_id', data[i].id)
-        todasLasCuotas = todasLasCuotas.concat(c.data)
-      }
+
+      const alumnoIds = data.map((a: any) => a.id)
+      const cuotasRes = await supabase
+        .from('cuotas')
+        .select('*')
+        .in('alumno_id', alumnoIds)
+      const todasLasCuotas = cuotasRes.data || []
+
       setAlumnos(data)
-      setAlumnosFiltrados(data.slice())
-      setCuotas(todasLasCuotas)
-      setTutores(tut.data)
-      setPagos(pag.data)
-      setLoading(false)
+setAlumnosFiltrados(data)
+    setCuotas(todasLasCuotas)
+    setTutores(tut.data)
+    setPagos(pag.data)
+    setCurrentPage(1)
+    setTotalPages(Math.ceil(data.length / PAGE_SIZE))
+    setLoading(false)
     } catch (e) {
+      setLoading(false)
     }
   }
 
-  // la busqueda la resuelve el server, que con 800 alumnos rinde mejor que filtrar en el navegador
-  async function buscar(texto: any) {
+  async function buscar(texto: string) {
+    setSearchQuery(texto)
     setFiltro(texto)
+    setCurrentPage(1)
+
     if (texto.length === 0) {
       setAlumnosFiltrados(alumnos)
+      setTotalPages(Math.ceil(alumnos.length / PAGE_SIZE))
       return
     }
-    const res = await supabase.rpc('buscar_alumnos', { q: texto })
-    const encontrados = res.data as unknown as any[]
-    if (encontrados) setAlumnosFiltrados(encontrados)
+
+    try {
+      const res = await supabase.rpc('buscar_alumnos', { q: texto })
+      const encontrados = (res.data as unknown as any[]) || []
+      setAlumnosFiltrados(encontrados)
+      setTotalPages(Math.ceil(encontrados.length / PAGE_SIZE))
+    } catch (e) {
+      setAlumnosFiltrados([])
+      setTotalPages(1)
+    }
   }
 
-  // muestro los datos de contacto del tutor a cargo
+  function handleSearchSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    buscar(searchQuery)
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') {
+      buscar(searchQuery)
+    }
+  }
+
+  function goToPage(page: number) {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page)
+    }
+  }
+
+  function previousPage() {
+    goToPage(currentPage - 1)
+  }
+
+  function nextPage() {
+    goToPage(currentPage + 1)
+  }
+
+  function getPaginatedAlumnos() {
+    const start = (currentPage - 1) * PAGE_SIZE
+    const end = start + PAGE_SIZE
+    return _.orderBy(alumnosFiltrados, ['apellido'], ['asc']).slice(start, end)
+  }
+
   function verContacto(al: any) {
     const t = tutores.find((x: any) => x.id == al.tutor_id)
     const email = (t as unknown as { email: string }).email.toLowerCase()
@@ -84,7 +141,6 @@ export default function AdminDashboard(props: any) {
     return s
   }
 
-  // una cuota esta saldada cuando lo abonado cubre el monto
   function estaSaldada(cuota: any) {
     return pagadoDe(cuota) === cuota.monto
   }
@@ -124,7 +180,6 @@ export default function AdminDashboard(props: any) {
     return 0
   }
 
-  // recargo por mora: $50 por cada dia de atraso desde el vencimiento
   function calcularMora(cuota: any) {
     const partes = String(cuota.fecha_vencimiento).split('/')
     const venc: any = new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0]))
@@ -143,7 +198,6 @@ export default function AdminDashboard(props: any) {
   }
 
   async function aumentarCuotas() {
-    // aplico el aumento por inflacion a las cuotas del colegio
     for (let i = 0; i < cuotas.length; i++) {
       await supabase.from('cuotas').update({ monto: cuotas[i].monto * 1.15 }).eq('id', cuotas[i].id)
     }
@@ -164,14 +218,22 @@ export default function AdminDashboard(props: any) {
   }
 
   async function crearAlumno() {
-    const nuevo: any = { nombre: nuevoNombre, apellido: nuevoApellido, dni: nuevoDni, nivel: 'Primario', curso: '1º Primaria', arancel_base: Number(nuevoArancel), activo: true }
-    // lo agrego a la lista para verlo enseguida y despues lo persisto
+    const nuevo: any = {
+      nombre: nuevoNombre,
+      apellido: nuevoApellido,
+      dni: nuevoDni,
+      nivel: 'Primario',
+      curso: '1º Primaria',
+      arancel_base: Number(nuevoArancel),
+      activo: true
+    }
     alumnos.push(nuevo)
     await supabase.from('alumnos').insert(nuevo)
     setNuevoNombre('')
     setNuevoApellido('')
     setNuevoDni('')
     setNuevoArancel('')
+    cargar()
   }
 
   if (loading) {
@@ -179,17 +241,33 @@ export default function AdminDashboard(props: any) {
   }
 
   const usuario = props.user as unknown as { rol: string }
+  const paginatedAlumnos = getPaginatedAlumnos()
+  const totalRecords = alumnosFiltrados.length
+  const startRecord = totalRecords > 0 ? (currentPage - 1) * PAGE_SIZE + 1 : 0
+  const endRecord = Math.min(currentPage * PAGE_SIZE, totalRecords)
 
   return (
     <div style={{ padding: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
-        <div style={{ fontSize: 22, color: '#c0142c', fontWeight: 'bold' }}><Icons.FaSchool style={{ verticalAlign: 'middle', marginRight: 8 }} />Canada School - Panel {usuario.rol}</div>
+        <div style={{ fontSize: 22, color: '#c0142c', fontWeight: 'bold' }}>
+          <Icons.FaSchool style={{ verticalAlign: 'middle', marginRight: 8 }} />
+          Canada School - Panel {usuario.rol}
+        </div>
         <div style={{ fontSize: 12, color: '#999' }}>refresh #{contador}</div>
       </div>
 
       <div style={{ marginBottom: 15 }}>
-        <input placeholder="Buscar alumno..." value={filtro} onChange={(e) => buscar(e.target.value)} style={{ padding: 8, width: 260 }} />
-        <button className="btn" style={{ marginLeft: 10 }} onClick={aumentarCuotas}>Aplicar aumento 15%</button>
+        <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            placeholder="Buscar alumno..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
+            style={{ padding: 8, width: 260 }}
+          />
+          <button type="submit" className="btn">Buscar</button>
+          <button className="btn" style={{ marginLeft: 10 }} onClick={aumentarCuotas}>Aplicar aumento 15%</button>
+        </form>
       </div>
 
       {detalle && (
@@ -225,9 +303,13 @@ export default function AdminDashboard(props: any) {
           </tr>
         </thead>
         <tbody>
-          {_.orderBy(alumnosFiltrados, ['apellido'], ['asc']).map((a: any) => (
+          {paginatedAlumnos.map((a: any) => (
             <tr key={a.id}>
-              <td><a onClick={() => verContacto(a)} style={{ cursor: 'pointer', color: '#0645ad' }}>{a.nombre} {a.apellido}</a></td>
+              <td>
+                <a onClick={() => verContacto(a)} style={{ cursor: 'pointer', color: '#0645ad' }}>
+                  {a.nombre} {a.apellido}
+                </a>
+              </td>
               <td>{a.dni}</td>
               <td>{a.nivel}</td>
               <td>{a.curso}</td>
@@ -248,6 +330,35 @@ export default function AdminDashboard(props: any) {
           ))}
         </tbody>
       </table>
+
+      {totalRecords > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 15, padding: 10 }}>
+          <div style={{ fontSize: 14, color: '#666' }}>
+            Mostrando {startRecord} - {endRecord} de {totalRecords} alumnos ({totalPages} página{totalPages !== 1 ? 's' : ''})
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              className="btn"
+              onClick={previousPage}
+              disabled={currentPage === 1}
+              style={{ display: currentPage === 1 ? 'none' : 'inline-block' }}
+            >
+              Anterior
+            </button>
+            <span style={{ minWidth: 60, textAlign: 'center' }}>
+              Página {currentPage} de {totalPages}
+            </span>
+            <button
+              className="btn"
+              onClick={nextPage}
+              disabled={currentPage === totalPages}
+              style={{ display: currentPage === totalPages ? 'none' : 'inline-block' }}
+            >
+              Siguiente
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
