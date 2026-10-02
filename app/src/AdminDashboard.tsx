@@ -192,7 +192,7 @@ export default function AdminDashboard() {
       : new Date(cuota.fecha_vencimiento).getTime()
     const hoy = new Date().getTime()
     const dias = Math.floor((hoy - venc2) / (1000 * 60 * 60 * 24))
-    if (dias > 0) return dias * 50
+    if (dias > 0) return dias * 5000
     return 0
   }
 
@@ -206,7 +206,7 @@ export default function AdminDashboard() {
 
   async function aumentarCuotas() {
     for (let i = 0; i < cuotas.length; i++) {
-      await supabase.from('cuotas').update({ monto: cuotas[i].monto * 1.15 }).eq('id', cuotas[i].id)
+      await supabase.from('cuotas').update({ monto: Math.round(cuotas[i].monto * 115 / 100) }).eq('id', cuotas[i].id)
     }
     alert('Aumento aplicado')
     cargar()
@@ -231,7 +231,7 @@ export default function AdminDashboard() {
       dni: nuevoDni,
       nivel: 'Primario',
       curso: '1º Primaria',
-      arancel_base: Number(nuevoArancel),
+      arancel_base: Math.round(Number(nuevoArancel) * 100),
       activo: true
     }
     alumnos.push(nuevo)
@@ -332,10 +332,10 @@ export default function AdminDashboard() {
               <td>{a.curso}</td>
               <td>{hermanos(a)}</td>
               <td>{descuentoHermano(a) * 100}%</td>
-              <td>${a.arancel_base}</td>
+              <td>${(a.arancel_base / 100).toFixed(2)}</td>
               <td>{saldadasDe(a)}</td>
-              <td style={{ color: moraDe(a) > 0 ? '#c0142c' : '#999' }}>${moraDe(a)}</td>
-              <td style={{ color: deudaDe(a) > 0 ? 'red' : 'green' }}>${deudaDe(a)}</td>
+              <td style={{ color: moraDe(a) > 0 ? '#c0142c' : '#999' }}>${(moraDe(a) / 100).toFixed(2)}</td>
+              <td style={{ color: deudaDe(a) > 0 ? 'red' : 'green' }}>${(deudaDe(a) / 100).toFixed(2)}</td>
               <td>
                 {canManageCuotas && cuotas.filter((c: any) => c.alumno_id == a.id && c.estado != 'pagado').map((c: any) => (
                   <button key={c.id} className="btn" style={{ marginRight: 4, fontSize: 11, padding: '3px 6px' }} onClick={() => cobrar(c)}>
