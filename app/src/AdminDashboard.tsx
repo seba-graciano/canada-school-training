@@ -134,7 +134,7 @@ export default function AdminDashboard() {
 
   function verContacto(al: any) {
     const t = tutores.find((x: any) => x.id == al.tutor_id)
-    const email = (t as unknown as { email: string }).email.toLowerCase()
+    const email = t?.email?.toLowerCase() ?? 'sin email registrado'
     setDetalle({ nombre: al.nombre + ' ' + al.apellido, email: email })
   }
 
