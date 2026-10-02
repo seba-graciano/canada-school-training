@@ -21,9 +21,19 @@ export default function AdminDashboard() {
   const [nuevoDni, setNuevoDni] = useState('')
   const [nuevoArancel, setNuevoArancel] = useState('')
   const [nuevoTutorId, setNuevoTutorId] = useState<number | null>(null)
+  const [nuevoNivel, setNuevoNivel] = useState('Primario')
+  const [nuevoCurso, setNuevoCurso] = useState('1º Primaria')
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
+
+  const cursosPorNivel: Record<string, string[]> = {
+    Inicial: ['Inicial'],
+    Primario: ['1º Primaria', '2º Primaria', '3º Primaria', '4º Primaria', '5º Primaria', '6º Primaria'],
+    Secundario: ['1º Secundaria', '2º Secundaria', '3º Secundaria', '4º Secundaria', '5º Secundaria', '6º Secundaria'],
+  }
+
+  const validCursos = cursosPorNivel[nuevoNivel] ?? []
 
   const isAdmin = userRole === 'admin'
   const isSecretaria = userRole === 'secretaria'
@@ -230,12 +240,16 @@ export default function AdminDashboard() {
       alert('Debe seleccionar un tutor')
       return
     }
+    if (!validCursos.includes(nuevoCurso)) {
+      alert('Curso inválido para el nivel seleccionado')
+      return
+    }
     const nuevo: any = {
       nombre: nuevoNombre,
       apellido: nuevoApellido,
       dni: nuevoDni,
-      nivel: 'Primario',
-      curso: '1º Primaria',
+      nivel: nuevoNivel,
+      curso: nuevoCurso,
       tutor_id: nuevoTutorId,
       arancel_base: Math.round(Number(nuevoArancel) * 100),
       activo: true
@@ -248,6 +262,8 @@ export default function AdminDashboard() {
       setNuevoDni('')
       setNuevoArancel('')
       setNuevoTutorId(null)
+      setNuevoNivel('Primario')
+      setNuevoCurso('1º Primaria')
       cargar()
     } catch (e: any) {
       alert('Error al crear alumno: ' + e.message)
@@ -310,6 +326,16 @@ export default function AdminDashboard() {
           <input placeholder="Apellido" value={nuevoApellido} onChange={(e) => setNuevoApellido(e.target.value)} style={{ marginLeft: 8 }} />
           <input placeholder="DNI" value={nuevoDni} onChange={(e) => setNuevoDni(e.target.value)} style={{ marginLeft: 8 }} />
           <input placeholder="Arancel" value={nuevoArancel} onChange={(e) => setNuevoArancel(e.target.value)} style={{ marginLeft: 8, width: 90 }} />
+          <select value={nuevoNivel} onChange={(e) => { setNuevoNivel(e.target.value); setNuevoCurso(cursosPorNivel[e.target.value][0]); }} style={{ marginLeft: 8, width: 140 }}>
+            <option value="Inicial">Inicial</option>
+            <option value="Primario">Primario</option>
+            <option value="Secundario">Secundario</option>
+          </select>
+          <select value={nuevoCurso} onChange={(e) => setNuevoCurso(e.target.value)} style={{ marginLeft: 8, width: 160 }}>
+            {validCursos.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
           <select value={nuevoTutorId ?? ''} onChange={(e) => setNuevoTutorId(e.target.value ? Number(e.target.value) : null)} style={{ marginLeft: 8, width: 200 }}>
             <option value="">Seleccionar tutor...</option>
             {tutores.map((t: any) => (
