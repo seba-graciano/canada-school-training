@@ -187,10 +187,11 @@ export default function AdminDashboard() {
   }
 
   function calcularMora(cuota: any) {
-    const partes = String(cuota.fecha_vencimiento).split('/')
-    const venc: any = new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0]))
-    const hoy: any = new Date()
-    const dias = Math.floor((hoy - venc) / (1000 * 60 * 60 * 24))
+    const venc2 = cuota.fecha_vencimiento_2
+      ? new Date(cuota.fecha_vencimiento_2).getTime()
+      : new Date(cuota.fecha_vencimiento).getTime()
+    const hoy = new Date().getTime()
+    const dias = Math.floor((hoy - venc2) / (1000 * 60 * 60 * 24))
     if (dias > 0) return dias * 50
     return 0
   }
