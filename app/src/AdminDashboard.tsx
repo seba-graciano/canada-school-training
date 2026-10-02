@@ -20,6 +20,7 @@ export default function AdminDashboard() {
   const [nuevoApellido, setNuevoApellido] = useState('')
   const [nuevoDni, setNuevoDni] = useState('')
   const [nuevoArancel, setNuevoArancel] = useState('')
+  const [nuevoTutorId, setNuevoTutorId] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -225,22 +226,32 @@ export default function AdminDashboard() {
   }
 
   async function crearAlumno() {
+    if (!nuevoTutorId) {
+      alert('Debe seleccionar un tutor')
+      return
+    }
     const nuevo: any = {
       nombre: nuevoNombre,
       apellido: nuevoApellido,
       dni: nuevoDni,
       nivel: 'Primario',
       curso: '1º Primaria',
+      tutor_id: nuevoTutorId,
       arancel_base: Math.round(Number(nuevoArancel) * 100),
       activo: true
     }
-    alumnos.push(nuevo)
-    await supabase.from('alumnos').insert(nuevo)
-    setNuevoNombre('')
-    setNuevoApellido('')
-    setNuevoDni('')
-    setNuevoArancel('')
-    cargar()
+    try {
+      const { error } = await supabase.from('alumnos').insert(nuevo).select().single()
+      if (error) throw error
+      setNuevoNombre('')
+      setNuevoApellido('')
+      setNuevoDni('')
+      setNuevoArancel('')
+      setNuevoTutorId(null)
+      cargar()
+    } catch (e: any) {
+      alert('Error al crear alumno: ' + e.message)
+    }
   }
 
   if (loading) {
@@ -299,6 +310,12 @@ export default function AdminDashboard() {
           <input placeholder="Apellido" value={nuevoApellido} onChange={(e) => setNuevoApellido(e.target.value)} style={{ marginLeft: 8 }} />
           <input placeholder="DNI" value={nuevoDni} onChange={(e) => setNuevoDni(e.target.value)} style={{ marginLeft: 8 }} />
           <input placeholder="Arancel" value={nuevoArancel} onChange={(e) => setNuevoArancel(e.target.value)} style={{ marginLeft: 8, width: 90 }} />
+          <select value={nuevoTutorId ?? ''} onChange={(e) => setNuevoTutorId(e.target.value ? Number(e.target.value) : null)} style={{ marginLeft: 8, width: 200 }}>
+            <option value="">Seleccionar tutor...</option>
+            {tutores.map((t: any) => (
+              <option key={t.id} value={t.id}>{t.nombre} {t.apellido}</option>
+            ))}
+          </select>
           <button className="btn" style={{ marginLeft: 8 }} onClick={crearAlumno}>Crear</button>
         </div>
       )}
