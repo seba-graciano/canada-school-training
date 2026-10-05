@@ -255,13 +255,14 @@ export default function AdminDashboard() {
   }
 
   async function aumentarCuotas() {
-    for (let i = 0; i < cuotas.length; i++) {
+    const cuotasAPagar = cuotas.filter((c: any) => !estaPagada(c));
+    for (let i = 0; i < cuotasAPagar.length; i++) {
       await supabase
         .from("cuotas")
-        .update({ monto: Math.round((cuotas[i].monto * 115) / 100) })
-        .eq("id", cuotas[i].id);
+        .update({ monto: Math.round((cuotasAPagar[i].monto * 115) / 100) })
+        .eq("id", cuotasAPagar[i].id);
     }
-    showToast("Aumento aplicado", "success");
+    showToast("Aumento aplicado a " + cuotasAPagar.length + " cuotas pendientes", "success");
     cargar();
   }
 
