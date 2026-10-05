@@ -1,4 +1,4 @@
--- RLS Policy Test Migration
+-- RLS Policy Test Migration.
 -- Run this after applying 0001_schema.sql to verify policies work correctly
 
 -- 1. Check current grants on all tables
