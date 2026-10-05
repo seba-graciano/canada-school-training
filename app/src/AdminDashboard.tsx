@@ -190,7 +190,13 @@ export default function AdminDashboard() {
   }
 
   function estaSaldada(cuota: any) {
-    return pagadoDe(cuota) === cuota.monto;
+    return pagadoDe(cuota) >= cuota.monto;
+  }
+
+  function estaPagada(cuota: any) {
+    const normalized = cuota.estado?.toLowerCase();
+    const estadosPagados = ["pagado", "pago", "ok"];
+    return estadosPagados.includes(normalized) || estaSaldada(cuota);
   }
 
   function saldadasDe(al: any) {
@@ -205,7 +211,7 @@ export default function AdminDashboard() {
     let total = 0;
     for (let i = 0; i < cuotas.length; i++) {
       if (cuotas[i].alumno_id == al.id) {
-        if (cuotas[i].estado != "pagado") {
+        if (!estaPagada(cuotas[i])) {
           total =
             total + cuotas[i].monto + cuotas[i].recargo - cuotas[i].descuento;
         }
@@ -260,17 +266,32 @@ export default function AdminDashboard() {
   }
 
   async function cobrar(cuota: any) {
-    await supabase.from("pagos").insert({
-      cuota_id: cuota.id,
-      monto_abonado: cuota.monto + cuota.recargo - cuota.descuento,
-      medio_pago: "efectivo",
-      fecha_pago: new Date().toLocaleDateString(),
+    const { data, error } = await supabase.rpc("cobrar_cuota", {
+      p_cuota_id: cuota.id,
     });
-    await supabase
-      .from("cuotas")
-      .update({ estado: "pagado" })
-      .eq("id", cuota.id);
-    showToast("Pago registrado", "success");
+
+    if (error) {
+      showToast("Error de conexión: " + error.message, "error");
+      return;
+    }
+
+    const result = data as {
+      success: boolean;
+      error?: string;
+      code?: string;
+      message?: string;
+    };
+
+    if (!result.success) {
+      if (result.code === "ALREADY_PAID") {
+        showToast("Esta cuota ya está pagada", "error");
+      } else {
+        showToast(result.error ?? "Error al registrar el pago", "error");
+      }
+      return;
+    }
+
+    showToast(result.message ?? "Pago registrado", "success");
     cargar();
   }
 
@@ -521,9 +542,7 @@ export default function AdminDashboard() {
               <td>
                 {canManageCuotas &&
                   cuotas
-                    .filter(
-                      (c: any) => c.alumno_id == a.id && c.estado != "pagado",
-                    )
+                    .filter((c: any) => c.alumno_id == a.id && !estaPagada(c))
                     .map((c: any) => (
                       <button
                         key={c.id}
