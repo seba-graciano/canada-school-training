@@ -182,30 +182,10 @@ export default function AdminDashboard() {
   }
 
   async function aumentarCuotas() {
-    // Obtener cuotas pendientes de TODOS los alumnos (no solo la página actual)
     try {
-      const { data: cuotasPendientes, error } = await supabase
-        .from("cuotas")
-        .select("*")
-        .not("estado", "ilike", "pagad%")
-        .not("estado", "ilike", "pago")
-        .not("estado", "ilike", "ok");
-      
+      const { data, error } = await supabase.rpc("aumentar_cuotas_pendientes_15");
       if (error) throw error;
-      
-      // También filtrar las que están saldadas por monto
-      const cuotasAPagar = (cuotasPendientes || []).filter((c: any) => {
-        // Necesitamos verificar pagos para cada una
-        return true; // simplificación: el RPC cobrar_cuota valida
-      });
-
-      for (let i = 0; i < cuotasAPagar.length; i++) {
-        await supabase
-          .from("cuotas")
-          .update({ monto: Math.round((cuotasAPagar[i].monto * 115) / 100) })
-          .eq("id", cuotasAPagar[i].id);
-      }
-      showToast("Aumento aplicado a " + cuotasAPagar.length + " cuotas pendientes", "success");
+      showToast(`Aumento aplicado a ${data} cuotas pendientes`, "success");
       cargar();
     } catch (e: any) {
       showToast("Error aplicando aumento: " + e.message, "error");
