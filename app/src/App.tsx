@@ -1,15 +1,24 @@
 import Login from './Login'
 import AdminDashboard from './AdminDashboard'
 import { useApp } from './AppContext'
+import { AppProvider } from './AppContext'
 
-function App() {
+function AppContent() {
   const { user, setUser } = useApp()
 
   if (!user) {
-    return <Login onLogin={(u: any) => setUser(u)} />
+    return <Login onLogin={setUser} />
   }
 
-  return <AdminDashboard user={user} />
+  return <AdminDashboard />
+}
+
+function App() {
+  return (
+    <AppProvider>
+      <AppContent />
+    </AppProvider>
+  )
 }
 
 export default App
