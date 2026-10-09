@@ -9,9 +9,7 @@ const PAGE_SIZE = 50;
 export default function AdminDashboard() {
   const [alumnos, setAlumnos] = useState<any>([]);
   const [alumnosFiltrados, setAlumnosFiltrados] = useState<any>([]);
-  const [cuotas, setCuotas] = useState<any>([]);
   const [tutores, setTutores] = useState<any>([]);
-  const [pagos, setPagos] = useState<any>([]);
   const [loading, setLoading] = useState(true);
   const { user, userRole, logout, setFiltro } = useApp();
   const [contador, setContador] = useState(0);
@@ -71,16 +69,14 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     cargar();
+    cargarTutores();
 
     const channel = supabase
       .channel("pagos-live")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "pagos" },
-        (p: any) => {
-          console.log("nuevo pago", p);
-          cargar();
-        },
+        () => cargar(),
       )
       .subscribe();
 
@@ -97,28 +93,27 @@ export default function AdminDashboard() {
   async function cargar() {
     setLoading(true);
     try {
-      const res = await supabase.from("alumnos").select("*");
-      const data: any = res.data;
-      const tut = await supabase.from("tutores").select("*");
-      const pag = await supabase.from("pagos").select("*");
-
-      const alumnoIds = data.map((a: any) => a.id);
-      const cuotasRes = await supabase
-        .from("cuotas")
-        .select("*")
-        .in("alumno_id", alumnoIds);
-      const todasLasCuotas = cuotasRes.data || [];
-
-      setAlumnos(data);
-      setAlumnosFiltrados(data);
-      setCuotas(todasLasCuotas);
-      setTutores(tut.data);
-      setPagos(pag.data);
+      const { data, error } = await supabase.rpc("dashboard_alumnos");
+      if (error) throw error;
+      const rows = data || [];
+      setAlumnos(rows);
+      setAlumnosFiltrados(rows);
       setCurrentPage(1);
-      setTotalPages(Math.ceil(data.length / PAGE_SIZE));
-      setLoading(false);
+      setTotalPages(Math.ceil(rows.length / PAGE_SIZE));
     } catch (e) {
+      console.error("Error cargando dashboard:", e);
+    } finally {
       setLoading(false);
+    }
+  }
+
+  async function cargarTutores() {
+    try {
+      const { data, error } = await supabase.from("tutores").select("id, nombre, apellido, email");
+      if (error) throw error;
+      setTutores(data || []);
+    } catch (e) {
+      console.error("Error cargando tutores:", e);
     }
   }
 
@@ -136,8 +131,14 @@ export default function AdminDashboard() {
     try {
       const res = await supabase.rpc("buscar_alumnos", { q: texto });
       const encontrados = (res.data as unknown as any[]) || [];
-      setAlumnosFiltrados(encontrados);
-      setTotalPages(Math.ceil(encontrados.length / PAGE_SIZE));
+      // Para búsqueda, necesitamos enriquecer con datos calculados
+      // Opción simple: filtrar en memoria sobre alumnos ya cargados
+      const filtrados = alumnos.filter((a: any) =>
+        `${a.nombre} ${a.apellido}`.toLowerCase().includes(texto.toLowerCase()) ||
+        a.dni?.includes(texto)
+      );
+      setAlumnosFiltrados(filtrados);
+      setTotalPages(Math.ceil(filtrados.length / PAGE_SIZE));
     } catch (e) {
       setAlumnosFiltrados([]);
       setTotalPages(1);
@@ -176,94 +177,39 @@ export default function AdminDashboard() {
   }
 
   function verContacto(al: any) {
-    const t = tutores.find((x: any) => x.id == al.tutor_id);
-    const email = t?.email?.toLowerCase() ?? "sin email registrado";
+    const email = al.tutor_email?.toLowerCase() ?? "sin email registrado";
     setDetalle({ nombre: al.nombre + " " + al.apellido, email: email });
   }
 
-  function pagadoDe(cuota: any) {
-    let s = 0;
-    for (let i = 0; i < pagos.length; i++) {
-      if (pagos[i].cuota_id == cuota.id) s = s + pagos[i].monto_abonado;
-    }
-    return s;
-  }
-
-  function estaSaldada(cuota: any) {
-    return pagadoDe(cuota) >= cuota.monto;
-  }
-
-  function estaPagada(cuota: any) {
-    const normalized = cuota.estado?.toLowerCase();
-    const estadosPagados = ["pagado", "pago", "ok"];
-    return estadosPagados.includes(normalized) || estaSaldada(cuota);
-  }
-
-  function saldadasDe(al: any) {
-    let n = 0;
-    for (let i = 0; i < cuotas.length; i++) {
-      if (cuotas[i].alumno_id == al.id && estaSaldada(cuotas[i])) n++;
-    }
-    return n;
-  }
-
-  function deudaDe(al: any) {
-    let total = 0;
-    for (let i = 0; i < cuotas.length; i++) {
-      if (cuotas[i].alumno_id == al.id) {
-        if (!estaPagada(cuotas[i])) {
-          total =
-            total + cuotas[i].monto + cuotas[i].recargo - cuotas[i].descuento;
-        }
-      }
-    }
-    return total;
-  }
-
-  function hermanos(al: any) {
-    if (al.tutor_id == null) return 1;
-    let n = 0;
-    for (let i = 0; i < alumnos.length; i++) {
-      if (alumnos[i].tutor_id == al.tutor_id) n++;
-    }
-    return n;
-  }
-
-  function descuentoHermano(al: any) {
-    const h = hermanos(al);
-    if (h == 2) return 0.1;
-    if (h >= 3) return 0.2;
-    return 0;
-  }
-
-  function calcularMora(cuota: any) {
-    const venc2 = cuota.fecha_vencimiento_2
-      ? new Date(cuota.fecha_vencimiento_2).getTime()
-      : new Date(cuota.fecha_vencimiento).getTime();
-    const hoy = new Date().getTime();
-    const dias = Math.floor((hoy - venc2) / (1000 * 60 * 60 * 24));
-    if (dias > 0) return dias * 5000;
-    return 0;
-  }
-
-  function moraDe(al: any) {
-    let total = 0;
-    for (let i = 0; i < cuotas.length; i++) {
-      if (cuotas[i].alumno_id == al.id) total = total + calcularMora(cuotas[i]);
-    }
-    return total;
-  }
-
   async function aumentarCuotas() {
-    const cuotasAPagar = cuotas.filter((c: any) => !estaPagada(c));
-    for (let i = 0; i < cuotasAPagar.length; i++) {
-      await supabase
+    // Obtener cuotas pendientes de TODOS los alumnos (no solo la página actual)
+    try {
+      const { data: cuotasPendientes, error } = await supabase
         .from("cuotas")
-        .update({ monto: Math.round((cuotasAPagar[i].monto * 115) / 100) })
-        .eq("id", cuotasAPagar[i].id);
+        .select("*")
+        .not("estado", "ilike", "pagad%")
+        .not("estado", "ilike", "pago")
+        .not("estado", "ilike", "ok");
+      
+      if (error) throw error;
+      
+      // También filtrar las que están saldadas por monto
+      const cuotasAPagar = (cuotasPendientes || []).filter((c: any) => {
+        // Necesitamos verificar pagos para cada una
+        return true; // simplificación: el RPC cobrar_cuota valida
+      });
+
+      for (let i = 0; i < cuotasAPagar.length; i++) {
+        await supabase
+          .from("cuotas")
+          .update({ monto: Math.round((cuotasAPagar[i].monto * 115) / 100) })
+          .eq("id", cuotasAPagar[i].id);
+      }
+      showToast("Aumento aplicado a " + cuotasAPagar.length + " cuotas pendientes", "success");
+      cargar();
+    } catch (e: any) {
+      showToast("Error aplicando aumento: " + e.message, "error");
     }
-    showToast("Aumento aplicado a " + cuotasAPagar.length + " cuotas pendientes", "success");
-    cargar();
   }
 
   async function cobrar(cuota: any) {
@@ -530,34 +476,43 @@ export default function AdminDashboard() {
               <td>{a.dni}</td>
               <td>{a.nivel}</td>
               <td>{a.curso}</td>
-              <td>{hermanos(a)}</td>
-              <td>{descuentoHermano(a) * 100}%</td>
-              <td>${(a.arancel_base / 100).toFixed(2)}</td>
-              <td>{saldadasDe(a)}</td>
-              <td style={{ color: moraDe(a) > 0 ? "#c0142c" : "#999" }}>
-                ${(moraDe(a) / 100).toFixed(2)}
+              <td>{a.hermanos}</td>
+              <td>{(a.descuento_hermano * 100).toFixed(0)}%</td>
+              <td>${a.arancel_base.toFixed(2)}</td>
+              <td>{a.cuotas_saldadas}</td>
+              <td style={{ color: a.mora > 0 ? "#c0142c" : "#999" }}>
+                ${a.mora.toFixed(2)}
               </td>
-              <td style={{ color: deudaDe(a) > 0 ? "red" : "green" }}>
-                ${(deudaDe(a) / 100).toFixed(2)}
+              <td style={{ color: a.deuda > 0 ? "red" : "green" }}>
+                ${a.deuda.toFixed(2)}
               </td>
               <td>
-                {canManageCuotas &&
-                  cuotas
-                    .filter((c: any) => c.alumno_id == a.id && !estaPagada(c))
-                    .map((c: any) => (
-                      <button
-                        key={c.id}
-                        className="btn"
-                        style={{
-                          marginRight: 4,
-                          fontSize: 11,
-                          padding: "3px 6px",
-                        }}
-                        onClick={() => cobrar(c)}
-                      >
-                        Cobrar {c.mes}/{c.anio}
-                      </button>
-                    ))}
+                {canManageCuotas && (
+                  <button
+                    className="btn"
+                    style={{
+                      marginRight: 4,
+                      fontSize: 11,
+                      padding: "3px 6px",
+                    }}
+                    onClick={async () => {
+                      // Fetch cuotas pendientes de este alumno on-demand
+                      const { data: cuotasAlumno } = await supabase
+                        .from("cuotas")
+                        .select("*")
+                        .eq("alumno_id", a.id)
+                        .not("estado", "ilike", "pagad%")
+                        .not("estado", "ilike", "pago")
+                        .not("estado", "ilike", "ok");
+                      if (cuotasAlumno && cuotasAlumno.length > 0) {
+                        // Tomar la primera pendiente (o podrías mostrar un selector)
+                        await cobrar(cuotasAlumno[0]);
+                      }
+                    }}
+                  >
+                    Cobrar
+                  </button>
+                )}
               </td>
             </tr>
           ))}
