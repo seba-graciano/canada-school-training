@@ -347,15 +347,16 @@ export default function AdminDashboard() {
           <button type="submit" className="btn">
             Buscar
           </button>
-          {canManageCuotas && (
-            <button
-              className="btn"
-              style={{ marginLeft: 10 }}
-              onClick={aumentarCuotas}
-            >
-              Aplicar aumento 15%
-            </button>
-          )}
+{canManageCuotas && (
+              <button
+                type="button"
+                className="btn"
+                style={{ marginLeft: 10 }}
+                onClick={aumentarCuotas}
+              >
+                Aplicar aumento 15%
+              </button>
+            )}
         </form>
       </div>
 
