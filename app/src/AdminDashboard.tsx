@@ -129,10 +129,7 @@ export default function AdminDashboard() {
     }
 
     try {
-      const res = await supabase.rpc("buscar_alumnos", { q: texto });
-      const encontrados = (res.data as unknown as any[]) || [];
-      // Para búsqueda, necesitamos enriquecer con datos calculados
-      // Opción simple: filtrar en memoria sobre alumnos ya cargados
+      // Filtrar en memoria sobre alumnos ya cargados (evita RPC extra)
       const filtrados = alumnos.filter((a: any) =>
         `${a.nombre} ${a.apellido}`.toLowerCase().includes(texto.toLowerCase()) ||
         a.dni?.includes(texto)
