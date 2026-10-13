@@ -10,7 +10,14 @@ set search_path = public
 as $$
 declare
   v_count int;
+  v_caller_role text;
 begin
+  -- Authorization check: solo admin y secretaria pueden ejecutar aumento masivo
+  v_caller_role := current_user_role();
+  if v_caller_role not in ('admin', 'secretaria') then
+    return 0;
+  end if;
+
   update cuotas
   set monto = round(monto * 1.15)::bigint
   where not (
