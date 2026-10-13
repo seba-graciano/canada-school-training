@@ -22,6 +22,8 @@ y arquitectura que hay que encontrar y resolver.
 
 ## Cómo empezar
 
+Alta de cuentas con selección de rol y requisitos de despliegue: [Account creation](docs/tutor-accounts.md).
+
 Ver **[SETUP.md](./SETUP.md)**. En resumen: `npm install`, crear tu Supabase, aplicar
 `supabase/`, configurar `.env` y `npm run dev`.
 

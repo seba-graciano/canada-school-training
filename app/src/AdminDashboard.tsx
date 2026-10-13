@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 import _ from "lodash";
 import * as Icons from "react-icons/fa";
 import { useApp } from "./AppContext";
+import AccountScreen from "./accounts/AccountScreen";
 
 const PAGE_SIZE = 50;
 
@@ -24,6 +25,7 @@ export default function AdminDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [accountScreen, setAccountScreen] = useState(false);
   const [toasts, setToasts] = useState<
     Array<{ id: number; message: string; type: "success" | "error" | "info" }>
   >([]);
@@ -259,6 +261,13 @@ export default function AdminDashboard() {
     }
   }
 
+  if (accountScreen && isAdmin) {
+    return <AccountScreen
+      onBack={() => setAccountScreen(false)}
+      onCreated={(role) => { if (role === "tutor") cargarTutores(); }}
+    />;
+  }
+
   if (loading) {
     return <div className="spin">Cargando alumnos...</div>;
   }
@@ -281,6 +290,8 @@ export default function AdminDashboard() {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
+          flexWrap: "wrap",
+          gap: 12,
           marginBottom: 15,
         }}
       >
@@ -288,11 +299,16 @@ export default function AdminDashboard() {
           <Icons.FaSchool style={{ verticalAlign: "middle", marginRight: 8 }} />
           Canada School - Panel {roleLabel}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 15 }}>
-          <div style={{ fontSize: 12, color: "#999" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end", marginLeft: "auto", maxWidth: "100%" }}>
+          <div style={{ fontSize: 12, color: "#999", overflowWrap: "anywhere", minWidth: 0 }}>
             {user?.email}{" "}
             <span style={{ marginLeft: 8, color: "#c0142c" }}>●</span>
           </div>
+          {isAdmin && (
+            <button type="button" className="btn" onClick={() => setAccountScreen(true)}>
+              Crear cuenta
+            </button>
+          )}
           <button
             className="btn"
             style={{ fontSize: 12, padding: "4px 10px" }}

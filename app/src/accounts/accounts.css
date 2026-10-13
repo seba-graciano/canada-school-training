@@ -1,0 +1,22 @@
+.account-screen { padding: 20px; }
+.account-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 15px; }
+.account-header > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; color: #666; overflow-wrap: anywhere; max-width: 100%; }
+.account-header > div button { margin-left: 8px; }
+.account-panel { max-width: 760px; margin: 0 auto; padding: 24px; background: #fff; border: 1px solid #ddd; }
+.account-panel h1 { color: #c0142c; font-size: 22px; font-weight: bold; margin-bottom: 16px; }
+.account-panel p { margin: 12px 0; line-height: 1.5; }
+.account-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 20px 0; }
+.account-legend { font-weight: bold; margin-bottom: 12px; }
+.account-fields label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.account-fields input, .account-fields select { border: 1px solid #aaa; padding: 9px; width: 100%; box-sizing: border-box; }
+.account-fields input:focus, .account-fields select:focus { outline: 2px solid #c0142c; outline-offset: 2px; }
+.account-role { grid-column: 1 / -1; }
+.account-fields span { font-size: 12px; color: #666; }
+.account-error { color: #a01026; background: #fff1f2; padding: 12px; }
+.account-success { padding: 12px; background: #edf7ed; color: #215c24; }
+.account-screen .btn:disabled { cursor: wait; opacity: 0.65; }
+@media (max-width: 600px) {
+  .account-screen { padding: 12px; }
+  .account-panel { padding: 16px; }
+  .account-fields { grid-template-columns: 1fr; }
+}
