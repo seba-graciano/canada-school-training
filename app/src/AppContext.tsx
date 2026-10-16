@@ -10,6 +10,7 @@ export function AppProvider(props: any) {
   const [filtro, setFiltro] = useState('')
   const [alumnos, setAlumnos] = useState<any>([])
   const [cuotas, setCuotas] = useState<any>([])
+  const [logoutError, setLogoutError] = useState('')
 
   // Restore session on mount
   useEffect(() => {
@@ -55,15 +56,24 @@ export function AppProvider(props: any) {
   }
 
   const logout = async () => {
-    await supabase.auth.signOut()
-    setUser(null)
-    setUserRole(null)
-    setTutorId(null)
+    setLogoutError('')
+    try {
+      const { error } = await supabase.auth.signOut()
+      if (error) throw error
+      setUser(null)
+      setUserRole(null)
+      setTutorId(null)
+    } catch {
+      setLogoutError('No se pudo cerrar la sesión. Verifique la conexión e intente nuevamente.')
+    }
   }
 
   const value = { user, setUser: login, userRole, tutorId, logout, filtro, setFiltro, alumnos, setAlumnos, cuotas, setCuotas }
 
-  return <AppContext.Provider value={value}>{props.children}</AppContext.Provider>
+  return <AppContext.Provider value={value}>
+    {logoutError && <div role="alert" style={{ color: '#a01026', background: '#fff1f2', padding: 12 }}>{logoutError}</div>}
+    {props.children}
+  </AppContext.Provider>
 }
 
 export function useApp() {

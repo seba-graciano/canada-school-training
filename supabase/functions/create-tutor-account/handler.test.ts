@@ -13,9 +13,11 @@ type TestOverrides = {
   authThrows?: boolean;
   roleThrows?: boolean;
   createThrows?: boolean;
+  newProfileThrows?: boolean;
   authResult?: Awaited<ReturnType<AccountClient['auth']['getUser']>>;
   createResult?: Awaited<ReturnType<AccountClient['auth']['admin']['createUser']>>;
   roleResult?: { data: { user_role: string } | null; error: { message: string } | null };
+  newProfileResult?: { data: { user_role: string } | null; error: { message: string } | null };
 };
 
 function setup(overrides: TestOverrides = {}) {
@@ -40,8 +42,12 @@ function setup(overrides: TestOverrides = {}) {
         eq: (column: string, id: string) => ({
           maybeSingle: async () => {
             calls.push({ operation: 'profile', value: { table, columns, column, id } });
-            if (overrides.roleThrows) throw new Error('sensitive SQL details');
-            return overrides.roleResult ?? { data: { user_role: 'admin' }, error: null };
+            if (id === 'admin-id') {
+              if (overrides.roleThrows) throw new Error('sensitive SQL details');
+              return overrides.roleResult ?? { data: { user_role: 'admin' }, error: null };
+            }
+            if (overrides.newProfileThrows) throw new Error('sensitive SQL details');
+            return overrides.newProfileResult ?? { data: { user_role: 'tutor' }, error: null };
           },
         }),
       }),
@@ -79,7 +85,7 @@ test('admin creates a confirmed Auth identity and normalizes guardian data', asy
   const response = await handler(request());
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { success: true });
-  assert.deepEqual(calls.map(call => call.operation), ['client', 'getUser', 'profile', 'createUser']);
+  assert.deepEqual(calls.map(call => call.operation), ['client', 'getUser', 'profile', 'createUser', 'profile']);
   assert.equal(calls[1].value, 'valid-token');
   assert.deepEqual(calls[2].value, { table: 'perfiles', columns: 'user_role', column: 'id', id: 'admin-id' });
   assert.deepEqual(calls[3].value, {
@@ -87,6 +93,7 @@ test('admin creates a confirmed Auth identity and normalizes guardian data', asy
     user_metadata: { nombre: 'Ana', apellido: 'Pérez', dni: '12345678', telefono: '123456' },
     app_metadata: { provision_tutor_by: 'admin-id' },
   });
+  assert.deepEqual(calls[4].value, { table: 'perfiles', columns: 'user_role', column: 'id', id: 'new-id' });
   assert.deepEqual(calls[0].value, {
     url: 'https://test.supabase.co', key: 'server-only-key',
     options: { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } },
@@ -97,7 +104,7 @@ test('phone is optional and maps to null', async () => {
   const { handler, calls, request } = setup();
   const { telefono: _phone, ...input } = validInput;
   assert.equal((await handler(request(input))).status, 200);
-  assert.equal((calls.at(-1)!.value as CreateTutorInput).user_metadata.telefono, null);
+  assert.equal((calls.find(call => call.operation === 'createUser')!.value as CreateTutorInput).user_metadata.telefono, null);
 });
 
 for (const token of [null, '', 'Basic valid-token', 'Bearer', 'Bearer one two']) {
@@ -187,3 +194,21 @@ test('GET is rejected and OPTIONS supports browser preflight without auth', asyn
   assert.ok(response.headers.get('Access-Control-Allow-Headers')?.includes('authorization'));
   assert.equal(calls.length, 0);
 });
+
+for (const [name, overrides] of Object.entries({
+  missing: { newProfileResult: { data: null, error: null } },
+  mismatched: { newProfileResult: { data: { user_role: 'admin' }, error: null } },
+  failed: { newProfileResult: { data: { user_role: 'tutor' }, error: { message: 'sensitive query details' } } },
+  thrown: { newProfileThrows: true },
+})) {
+  test(`legacy endpoint reports incomplete setup for ${name} persisted profile`, async () => {
+    const { handler, calls, request } = setup(overrides);
+    const response = await handler(request());
+    await expectError(response.clone(), 500);
+    assert.deepEqual(await response.json(), {
+      error: 'La cuenta se creó, pero no se pudo verificar su perfil. Contacte al administrador.',
+    });
+    assert.equal(calls.filter(call => call.operation === 'createUser').length, 1);
+    assert.deepEqual(calls.at(-1)!.value, { table: 'perfiles', columns: 'user_role', column: 'id', id: 'new-id' });
+  });
+}

@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { supabase } from './supabase'
 
 export default function Login(props: any) {
-  const [email, setEmail] = useState('secretaria@canadaschool.edu.ar')
-  const [pass, setPass] = useState('1234')
+  const [email, setEmail] = useState('')
+  const [pass, setPass] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 

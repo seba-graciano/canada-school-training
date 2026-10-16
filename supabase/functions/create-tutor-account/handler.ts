@@ -122,7 +122,7 @@ function accountHandler(dependencies: Dependencies, legacyTutor: boolean) {
       const input = validateInput(payload, legacyTutor);
       if (!input) return json({ error: 'Revisa los datos ingresados. La contraseña debe tener entre 12 y 128 caracteres.' }, 400);
 
-      // The Auth insert trigger creates the profile and, for tutors, the guardian atomically.
+      // Auth provisioning triggers create the profile and, for tutors, the guardian atomically.
       const { user_role, ...accountData } = input;
       const app_metadata: CreateAccountInput['app_metadata'] = legacyTutor
         ? { provision_tutor_by: callerData.user.id }
@@ -137,6 +137,18 @@ function accountHandler(dependencies: Dependencies, legacyTutor: boolean) {
         return json({ error: 'El correo o la contraseña no cumplen los requisitos.' }, 400);
       }
       if (error || !data.user?.id) return json({ error: 'No se pudo crear la cuenta. Intenta nuevamente.' }, 500);
+      let profileVerified = false;
+      try {
+        const { data: createdProfile, error: createdProfileError } = await client.from('perfiles')
+          .select('user_role').eq('id', data.user.id).maybeSingle();
+        profileVerified = !createdProfileError && createdProfile?.user_role === user_role;
+      } catch {
+        profileVerified = false;
+      }
+      if (!profileVerified) {
+        // Auth already succeeded: do not advise recreating or delete an existing identity.
+        return json({ error: 'La cuenta se creó, pero no se pudo verificar su perfil. Contacte al administrador.' }, 500);
+      }
       return json({ success: true }, 200);
     } catch {
       return json({ error: 'No se pudo crear la cuenta. Intenta nuevamente.' }, 500);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabase";
 import _ from "lodash";
 import * as Icons from "react-icons/fa";
@@ -9,7 +9,6 @@ const PAGE_SIZE = 50;
 
 export default function AdminDashboard() {
   const [alumnos, setAlumnos] = useState<any>([]);
-  const [alumnosFiltrados, setAlumnosFiltrados] = useState<any>([]);
   const [tutores, setTutores] = useState<any>([]);
   const [loading, setLoading] = useState(true);
   const { user, userRole, logout, setFiltro } = useApp();
@@ -23,8 +22,10 @@ export default function AdminDashboard() {
   const [nuevoNivel, setNuevoNivel] = useState("Primario");
   const [nuevoCurso, setNuevoCurso] = useState("1º Primaria");
   const [searchQuery, setSearchQuery] = useState("");
+  const [appliedSearchQuery, setAppliedSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const dashboardRequest = useRef(0);
+  const mounted = useRef(false);
   const [accountScreen, setAccountScreen] = useState(false);
   const [toasts, setToasts] = useState<
     Array<{ id: number; message: string; type: "success" | "error" | "info" }>
@@ -69,7 +70,21 @@ export default function AdminDashboard() {
   const canManageCuotas = isAdmin || isSecretaria;
   const canCreateAlumno = isAdmin || isSecretaria;
 
+  const alumnosFiltrados = useMemo(() => {
+    if (appliedSearchQuery.length === 0) return alumnos;
+    try {
+      return alumnos.filter((a: any) =>
+        `${a.nombre} ${a.apellido}`.toLowerCase().includes(appliedSearchQuery.toLowerCase()) ||
+        a.dni?.includes(appliedSearchQuery)
+      );
+    } catch {
+      return [];
+    }
+  }, [alumnos, appliedSearchQuery]);
+  const totalPages = Math.ceil(alumnosFiltrados.length / PAGE_SIZE);
+
   useEffect(() => {
+    mounted.current = true;
     cargar();
     cargarTutores();
 
@@ -87,25 +102,32 @@ export default function AdminDashboard() {
     }, 5000);
 
     return () => {
+      mounted.current = false;
+      dashboardRequest.current += 1;
       supabase.removeChannel(channel);
       clearInterval(intervalId);
     };
   }, []);
 
   async function cargar() {
+    if (!mounted.current) return;
+    const request = ++dashboardRequest.current;
     setLoading(true);
     try {
       const { data, error } = await supabase.rpc("dashboard_alumnos");
+      if (!mounted.current || request !== dashboardRequest.current) return;
       if (error) throw error;
       const rows = data || [];
       setAlumnos(rows);
-      setAlumnosFiltrados(rows);
       setCurrentPage(1);
-      setTotalPages(Math.ceil(rows.length / PAGE_SIZE));
     } catch (e) {
-      console.error("Error cargando dashboard:", e);
+      if (mounted.current && request === dashboardRequest.current) {
+        console.error("Error cargando dashboard:", e);
+      }
     } finally {
-      setLoading(false);
+      if (mounted.current && request === dashboardRequest.current) {
+        setLoading(false);
+      }
     }
   }
 
@@ -121,27 +143,9 @@ export default function AdminDashboard() {
 
   async function buscar(texto: string) {
     setSearchQuery(texto);
+    setAppliedSearchQuery(texto);
     setFiltro(texto);
     setCurrentPage(1);
-
-    if (texto.length === 0) {
-      setAlumnosFiltrados(alumnos);
-      setTotalPages(Math.ceil(alumnos.length / PAGE_SIZE));
-      return;
-    }
-
-    try {
-      // Filtrar en memoria sobre alumnos ya cargados (evita RPC extra)
-      const filtrados = alumnos.filter((a: any) =>
-        `${a.nombre} ${a.apellido}`.toLowerCase().includes(texto.toLowerCase()) ||
-        a.dni?.includes(texto)
-      );
-      setAlumnosFiltrados(filtrados);
-      setTotalPages(Math.ceil(filtrados.length / PAGE_SIZE));
-    } catch (e) {
-      setAlumnosFiltrados([]);
-      setTotalPages(1);
-    }
   }
 
   function handleSearchSubmit(e: React.FormEvent) {

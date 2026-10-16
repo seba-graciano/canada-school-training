@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile, readdir } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import test from 'node:test'
+import { selectMigrationNames } from './migrations.mjs'
 
 // Use a temporary tool installation, without changing application dependencies.
 const { PGlite } = await import(pathToFileURL(process.env.PGLITE_MODULE).href)
@@ -13,6 +14,7 @@ const newId = '00000000-0000-4000-8000-000000000004'
 
 async function database(baseline = Boolean(process.env.BASELINE_ONLY)) {
   const db = new PGlite()
+  const pendingState = baseline ? 'pendiente' : 'Pendiente'
   await db.exec(`
     create role anon; create role authenticated; create role supabase_auth_admin;
     create schema auth;
@@ -24,8 +26,7 @@ async function database(baseline = Boolean(process.env.BASELINE_ONLY)) {
       $$ select (auth.jwt()->>'sub')::uuid $$;
     grant usage on schema auth to authenticated, anon, supabase_auth_admin;
   `)
-  for (const name of (await readdir(migrations)).filter(n => n.endsWith('.sql')).sort()) {
-    if (baseline && !/^00\d\d_/.test(name)) continue
+  for (const name of selectMigrationNames(await readdir(migrations), baseline)) {
     await db.exec(await readFile(new URL(name, migrations), 'utf8'))
   }
   await db.exec(`
@@ -38,7 +39,7 @@ async function database(baseline = Boolean(process.env.BASELINE_ONLY)) {
     insert into alumnos(nombre,apellido,tutor_id,arancel_base) values
       ('Own','Student',1,10000), ('Other','Student',2,10000);
     insert into cuotas(alumno_id,monto,descuento,recargo,estado,fecha_vencimiento) values
-      (1,10000,0,0,'pendiente',current_date), (2,10000,0,0,'pendiente',current_date);
+      (1,10000,0,0,'${pendingState}',current_date), (2,10000,0,0,'${pendingState}',current_date);
     insert into pagos(cuota_id,monto_abonado) values (1,100),(2,100);
   `)
   return db
@@ -89,6 +90,58 @@ test('admin and secretary retain dashboard, fee increase and collection behavior
       assert.equal((await db.query('select cobrar_cuota(1) as result')).rows[0].result.success,true)
     } finally { await db.close() }
   }
+})
+
+test('staff collection persists one payment and canonical paid state; a repeat changes nothing', async () => {
+  for (const [id,role] of [[adminId,'admin'],[secretaryId,'secretaria']]) {
+    const db = await database(false)
+    try {
+      await db.exec('delete from pagos where cuota_id=1')
+      await asUser(db,id,role)
+      const date = (await db.query('select current_date::text as today')).rows[0].today
+      const first = (await db.query('select cobrar_cuota(1) as result')).rows[0].result
+      assert.deepEqual(first, {
+        success:true,
+        message:'Pago registrado',
+        monto_pagado:10000,
+        nuevo_pagado_total:10000,
+      })
+      assert.deepEqual((await db.query('select estado from cuotas where id=1')).rows,
+        [{estado:'Pagada'}])
+      assert.deepEqual((await db.query(`select cuota_id,monto_abonado,medio_pago,fecha_pago
+        from pagos where cuota_id=1`)).rows,
+        [{cuota_id:1,monto_abonado:10000,medio_pago:'efectivo',fecha_pago:date}])
+      const before = await snapshot(db,['cuotas','pagos'])
+      const repeat = (await db.query('select cobrar_cuota(1) as result')).rows[0].result
+      assert.deepEqual(repeat, {
+        success:false,
+        error:'Esta cuota ya está pagada',
+        code:'ALREADY_PAID',
+        pagado_total:10000,
+        monto_total:10000,
+      })
+      assert.deepEqual(await snapshot(db,['cuotas','pagos']),before)
+    } finally { await db.close() }
+  }
+})
+
+test('a failed collection state update rolls back the payment and preserves all billing data', async () => {
+  const db = await database(false)
+  try {
+    await db.exec(`create function fail_collection_state() returns trigger language plpgsql as
+      $$ begin raise exception 'collection state failure'; end $$;
+      create trigger fail_collection_state before update on cuotas
+        for each row execute function fail_collection_state();`)
+    const before = await snapshot(db,['cuotas','pagos'])
+    await asUser(db,adminId,'admin')
+    const result = (await db.query('select cobrar_cuota(1) as result')).rows[0].result
+    assert.deepEqual(result, {
+      success:false,
+      error:'Error al registrar el pago: collection state failure',
+      code:'DB_ERROR',
+    })
+    assert.deepEqual(await snapshot(db,['cuotas','pagos']),before)
+  } finally { await db.close() }
 })
 
 async function provision(db, actor = adminId, metadata = {}) {
@@ -199,7 +252,14 @@ test('staff operations produce the same results and stored amounts as the baseli
       }
       for (const db of [baseline,candidate]) await db.exec('reset role')
       for (const table of ['cuotas','pagos']) {
-        const stable = rows => rows.map(({created_at, ...rest}) => rest)
+        // Canonical spelling changed; stored amounts and every other field did not.
+        const stable = rows => rows.map(({created_at, ...rest}) => {
+          if (table === 'cuotas') {
+            rest.estado = ({pendiente:'Pendiente',pagado:'Pagada',vencida:'Vencida'})[rest.estado]
+              ?? rest.estado
+          }
+          return rest
+        })
         assert.deepEqual(stable((await candidate.query(`select * from ${table} order by id`)).rows),
           stable((await baseline.query(`select * from ${table} order by id`)).rows),`${role}: ${table}`)
       }
@@ -212,6 +272,102 @@ async function provisionAccount(db, role, actor = adminId, metadata = {}) {
     [newId,'new@example.test',{provision_account_by:actor,provision_account_role:role},
       {nombre:'New',apellido:'Account',...(role === 'tutor' ? {dni:'30123456',telefono:'1144445555'} : {}),...metadata}])
 }
+
+// GoTrue Admin creation inserts provider metadata, then applies app_metadata
+// inside the same transaction; protected provisioning markers arrive on UPDATE.
+async function provisionThroughAuthLifecycle(db, role, actor = adminId, legacy = false) {
+  await db.exec('begin')
+  try {
+    await db.query(`insert into auth.users(id,email,raw_app_meta_data,raw_user_meta_data) values ($1,$2,$3,$4)`,
+      [newId,'new@example.test',{provider:'email'},
+        {nombre:'New',apellido:'Account',...(role === 'tutor' ? {dni:'30123456'} : {})}])
+    const marker = legacy ? {provision_tutor_by:actor} : {provision_account_by:actor,provision_account_role:role}
+    await db.query('update auth.users set raw_app_meta_data=raw_app_meta_data || $1::jsonb where id=$2',[marker,newId])
+    await db.exec('commit')
+  } catch (error) {
+    await db.exec('rollback')
+    throw error
+  }
+}
+
+test('actual Auth insert-then-metadata-update provisions each role and is idempotent', async () => {
+  for (const [role,legacy] of [['admin',false],['secretaria',false],['tutor',false],['tutor',true]]) {
+    const db = await database()
+    try {
+      await provisionThroughAuthLifecycle(db,role,adminId,legacy)
+      assert.deepEqual((await db.query('select user_role,tutor_id from perfiles where id=$1',[newId])).rows,
+        [{user_role:role,tutor_id:role === 'tutor' ? 3 : null}])
+      const before = await snapshot(db,['tutores','perfiles'])
+      await db.query('update auth.users set raw_app_meta_data=raw_app_meta_data where id=$1',[newId])
+      await db.query(`update auth.users set raw_app_meta_data=raw_app_meta_data || '{"provider":"email"}'::jsonb where id=$1`,[newId])
+      assert.deepEqual(await snapshot(db,['tutores','perfiles']),before)
+      const hook = (await db.query('select custom_access_token_hook($1) as result',[{user_id:newId,claims:{}}])).rows[0].result
+      assert.equal(hook.claims.user_role,role)
+    } finally { await db.close() }
+  }
+})
+
+test('metadata-update provisioning rejects nonadmins and late failures roll back the whole Auth transaction', async () => {
+  const db = await database()
+  try {
+    const tables = ['auth.users','tutores','perfiles']
+    const before = await snapshot(db,tables)
+    await assert.rejects(provisionThroughAuthLifecycle(db,'admin',secretaryId),error => error.code === '42501')
+    assert.deepEqual(await snapshot(db,tables),before)
+    await db.exec(`create function fail_deferred_profile() returns trigger language plpgsql as
+      $$ begin raise exception 'deferred profile failure'; end $$;
+      create trigger fail_deferred_profile before insert on perfiles
+        for each row execute function fail_deferred_profile();`)
+    for (const role of ['tutor','admin','secretaria']) {
+      await assert.rejects(provisionThroughAuthLifecycle(db,role),/deferred profile failure/)
+      assert.deepEqual(await snapshot(db,tables),before)
+    }
+  } finally { await db.close() }
+})
+
+test('later protected metadata updates never replace existing profiles or create duplicate guardians', async () => {
+  const db = await database()
+  try {
+    await provisionThroughAuthLifecycle(db,'tutor')
+    assert.deepEqual((await db.query('select user_role,tutor_id from perfiles where id=$1',[newId])).rows,
+      [{user_role:'tutor',tutor_id:3}])
+    await db.query('update perfiles set user_role=$1 where id=$2',['secretaria',adminId])
+    const before = await snapshot(db,['tutores','perfiles'])
+    await db.query(`update auth.users set raw_app_meta_data=raw_app_meta_data || '{"provision_account_role":"admin"}'::jsonb where id=$1`,[newId])
+    assert.deepEqual(await snapshot(db,['tutores','perfiles']),before)
+  } finally { await db.close() }
+})
+
+test('targeted orphan replay preserves Auth identity and unrelated users and stays idempotent', async () => {
+  for (const role of ['admin','secretaria','tutor']) {
+    const db = await database()
+    try {
+      await db.exec('alter table auth.users disable trigger provision_tutor_account')
+      await provisionAccount(db,role)
+      await db.exec('alter table auth.users enable trigger provision_tutor_account')
+      assert.equal((await db.query('select * from perfiles where id=$1',[newId])).rows.length,0)
+      const authBefore = await snapshot(db,['auth.users'])
+      await db.query('update auth.users set raw_app_meta_data=raw_app_meta_data where id=$1',[newId])
+      assert.deepEqual(await snapshot(db,['auth.users']),authBefore)
+      assert.deepEqual((await db.query('select user_role,tutor_id from perfiles where id=$1',[newId])).rows,
+        [{user_role:role,tutor_id:role === 'tutor' ? 3 : null}])
+      const allBefore = await snapshot(db,['auth.users','tutores','perfiles'])
+      await db.query('update auth.users set raw_app_meta_data=raw_app_meta_data where id=$1',[newId])
+      assert.deepEqual(await snapshot(db,['auth.users','tutores','perfiles']),allBefore)
+    } finally { await db.close() }
+  }
+})
+
+test('lifecycle role rejection rolls back inserted identity and metadata', async () => {
+  const db = await database()
+  try {
+    const before = await snapshot(db,['auth.users','tutores','perfiles'])
+    for (const role of ['teacher',null,'ADMIN']) {
+      await assert.rejects(provisionThroughAuthLifecycle(db,role),error => error.code === '22023')
+      assert.deepEqual(await snapshot(db,['auth.users','tutores','perfiles']),before)
+    }
+  } finally { await db.close() }
+})
 
 test('generic provisioning creates each requested role and guardians only for tutors', async () => {
   for (const role of ['admin','secretaria','tutor']) {

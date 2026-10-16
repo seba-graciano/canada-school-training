@@ -5,8 +5,11 @@ import type { AccountClient, CreateTutorInput } from '../create-tutor-account/ha
 
 const common = { nombre: ' New ', apellido: ' Account ', email: ' NEW@EXAMPLE.TEST ', password: 'password123456' };
 
-function setup(role: string | null = 'admin', validToken = true) {
+type NewProfile = { result?: { data: { user_role: string } | null; error: { message: string } | null }; throws?: boolean };
+
+function setup(role: string | null = 'admin', validToken = true, newProfile: NewProfile = {}) {
   const writes: CreateTutorInput[] = [];
+  const queriedIds: string[] = [];
   const client: AccountClient = {
     auth: {
       getUser: async () => ({ data: { user: validToken ? { id: 'current-admin' } : null }, error: null }),
@@ -15,8 +18,15 @@ function setup(role: string | null = 'admin', validToken = true) {
         return { data: { user: { id: 'new-account' } }, error: null };
       } },
     },
-    from: () => ({ select: () => ({ eq: () => ({
-      maybeSingle: async () => ({ data: role ? { user_role: role } : null, error: null }),
+    from: () => ({ select: () => ({ eq: (_column, id) => ({
+      maybeSingle: async () => {
+        queriedIds.push(id);
+        if (id === 'current-admin') return { data: role ? { user_role: role } : null, error: null };
+        if (newProfile.throws) throw new Error('sensitive profile query detail');
+        const appMetadata = writes.at(-1)!.app_metadata;
+        const createdRole = 'provision_account_role' in appMetadata ? appMetadata.provision_account_role : 'tutor';
+        return newProfile.result ?? { data: { user_role: createdRole }, error: null };
+      },
     }) }) }),
   };
   const handler = createAccountHandler({
@@ -26,12 +36,12 @@ function setup(role: string | null = 'admin', validToken = true) {
   const request = (input: unknown, token: string | null = 'Bearer current-token') => new Request('https://example.test/functions/v1/create-account', {
     method: 'POST', headers: token ? { authorization: token } : {}, body: JSON.stringify(input),
   });
-  return { writes, handler, request };
+  return { writes, queriedIds, handler, request };
 }
 
 for (const user_role of ['admin', 'secretaria', 'tutor']) {
   test(`creates ${user_role} with a protected validated role`, async () => {
-    const { writes, handler, request } = setup();
+    const { writes, queriedIds, handler, request } = setup();
     const tutorData = user_role === 'tutor' ? { dni: ' 12345678 ', telefono: ' 5555 ' } : {};
     const response = await handler(request({ ...common, ...tutorData, user_role }));
     assert.equal(response.status, 200);
@@ -41,6 +51,7 @@ for (const user_role of ['admin', 'secretaria', 'tutor']) {
       user_metadata: { nombre: 'New', apellido: 'Account', ...(user_role === 'tutor' ? { dni: '12345678', telefono: '5555' } : {}) },
       app_metadata: { provision_account_by: 'current-admin', provision_account_role: user_role },
     }]);
+    assert.deepEqual(queriedIds, ['current-admin', 'new-account']);
   });
 }
 
@@ -90,3 +101,21 @@ test('missing or invalid bearer cannot provision staff', async () => {
   }
   assert.deepEqual(writes, []);
 });
+
+for (const [name, newProfile] of Object.entries({
+  missing: { result: { data: null, error: null } },
+  mismatched: { result: { data: { user_role: 'admin' }, error: null } },
+  failed: { result: { data: { user_role: 'secretaria' }, error: { message: 'sensitive query details' } } },
+  thrown: { throws: true },
+})) {
+  test(`generic endpoint reports incomplete setup for ${name} persisted profile`, async () => {
+    const { writes, queriedIds, handler, request } = setup('admin', true, newProfile);
+    const response = await handler(request({ ...common, user_role: 'secretaria' }));
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), {
+      error: 'La cuenta se creó, pero no se pudo verificar su perfil. Contacte al administrador.',
+    });
+    assert.equal(writes.length, 1);
+    assert.deepEqual(queriedIds, ['current-admin', 'new-account']);
+  });
+}
