@@ -1,3 +1,4 @@
+import '../src/index.css'
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AppProvider, useApp } from '../src/AppContext'
