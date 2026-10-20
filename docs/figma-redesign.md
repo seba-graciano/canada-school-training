@@ -12,7 +12,7 @@ Installments with an existing partial payment are shown for review and cannot be
 
 ## Interface and verification
 
-The shared shell, login, student list, student details, collection review and account creation follow the supplied desktop/mobile design. Filters use live data, and small screens use student cards. Account creation retains the current three roles and password workflow. Its example account directory is represented by actual role descriptions because no account-directory API exists in the application. SVGs and Inter font files are stored locally under `app/public/design`; the font license is included.
+The shared shell, login, student list, student details, collection review and account creation follow the supplied desktop/mobile design. Filters use live data, and small screens use student cards. Account creation retains the current three roles and password workflow. Registered account search and guarded deletion are documented in [account-directory.md](account-directory.md), including their required backend activation. SVGs and Inter font files are stored locally under `app/public/design`; the font license is included.
 
 From `app/`, run:
 

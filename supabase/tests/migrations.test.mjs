@@ -34,8 +34,11 @@ test('current migration chain includes later fixes and differs from the baseline
   assert.ok(current.includes('0016_tutor_accounts.sql'))
   assert.ok(current.includes('0017_provision_accounts_after_metadata.sql'))
   assert.ok(current.includes('0018_fix_cobro_estado.sql'))
-  assert.deepEqual(current.map(name => name.split('_')[0]),
-    current.map((_, index) => String(index + 1).padStart(4, '0')))
+  const numbered = current.filter(name => /^\d{4}_/.test(name))
+  assert.deepEqual(numbered.map(name => name.split('_')[0]),
+    numbered.map((_, index) => String(index + 1).padStart(4, '0')))
+  assert.ok(current.includes('20261020190612_account_directory.sql'))
+  assert.ok(current.filter(name => /^\d{14}_[a-z0-9_]+\.sql$/.test(name)).includes('20261020190612_account_directory.sql'))
   assert.ok(current.length > baseline.length)
   assert.deepEqual(current, names.filter(name => name.endsWith('.sql')).sort())
 })

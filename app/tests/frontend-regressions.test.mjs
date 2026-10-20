@@ -93,6 +93,9 @@ async function open(t, { strict = false, role = 'admin', installments = [], paym
         ...(logoutStatus === 204 ? {} : { body: JSON.stringify({ message: 'Simulated auth outage' }) }) })
     }
     if (url.pathname === '/rest/v1/tutores') return route.fulfill({ status: 200, headers, body: '[]' })
+    if (url.pathname === '/rest/v1/rpc/admin_list_accounts') return route.fulfill({
+      status: 200, headers, body: JSON.stringify({ accounts: [], total: 0, page: 1, page_size: 20 }),
+    })
     if (url.pathname === '/rest/v1/cuotas') return route.fulfill({ status: 200, headers, body: JSON.stringify(installments) })
     if (url.pathname === '/rest/v1/rpc/cobrar_cuota') {
       const id = route.request().postDataJSON().p_cuota_id
@@ -226,6 +229,9 @@ test('redesigned screens fit desktop, tablet and mobile with locally resolved as
     for (const width of [390, 768, 1440]) {
       await h.page.setViewportSize({ width, height: 960 })
       await h.page.evaluate(() => document.fonts.ready)
+      await h.page.waitForFunction(() => Array.from(document.images)
+        .filter(image => image.getClientRects().length > 0)
+        .every(image => image.complete && image.naturalWidth > 0))
       assert.equal(await h.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${name}: horizontal overflow at ${width}`)
       const images = await h.page.locator('img:visible').evaluateAll(images => images.map(image => ({ src: image.currentSrc, loaded: image.complete && image.naturalWidth > 0, width: image.width, naturalWidth: image.naturalWidth })))
       assert.equal(images.every(image => image.loaded && image.width === image.naturalWidth), true, `${name}: SVG slot geometry`)
