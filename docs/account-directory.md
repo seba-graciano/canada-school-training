@@ -26,4 +26,6 @@ Local verification passed 26 SQL/migration cases, 77 HTTP handler cases, 22 clie
 
 Independent checks used fresh temporary copies and fixture data. PGlite validates serial last-admin refusal and data preservation; separate concurrent PostgreSQL sessions and the deployed Supabase environment remain untested. Transaction advisory locking and administrator row locks were inspected, but those inspections are not a live concurrency test.
 
+The user-authorized native review completed without blocking findings. It recorded one nonblocking retry limitation: if deletion succeeds but its response is lost, another attempt can report that the identity is unavailable while the old row remains visible. Close the confirmation and reopen the directory to reconcile it. Automatic reconciliation after an uncertain deletion outcome remains separate follow-up work.
+
 Rollback requires coordinated frontend/backend deployment: keep the current helper's live-profile authorization when retaining account deletion. Restoring JWT-only authorization while deleting accounts would restore access-token privileges until expiry. Never roll back by deleting tutor or billing records.
