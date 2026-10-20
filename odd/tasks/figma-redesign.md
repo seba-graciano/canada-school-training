@@ -11,10 +11,10 @@ Delivery: local work-unit commits; no remote publication requested. Forecast: 1,
 
 ## Tasks
 
-- T1 — S1/S2 — inline — verified — local Figma SVGs/Inter, shared responsive shell; visual readback and asset geometry at 390/768/1440 px. Commit pending.
-- T2 — S1/S2/S4 — delegated (parallel disjoint login/accounts units) — verified — login presentation, existing auth preserved; integrated browser/build checks pass. Commit pending.
-- T3 — S1/S2/S4 — delegated (parallel disjoint login/accounts units) — verified — supported role summaries and existing creation form; 18 account tests pass. Commit pending.
-- T4 — S1/S2/S3/S4 — inline — verified — arbitrary month selection, preflight reload, submission lock, exact current-RPC amount review and honest per-installment outcomes. Independent verifier found no introduced blockers. Commit pending.
+- T1 — S1/S2 — inline — completed — local Figma SVGs/Inter, shared responsive shell; visual readback and asset geometry at 390/768/1440 px. Commit `4823b88`.
+- T2 — S1/S2/S4 — delegated (parallel disjoint login/accounts units) — completed — login presentation, existing auth preserved; integrated browser/build checks pass. Commit `4823b88`.
+- T3 — S1/S2/S4 — delegated (parallel disjoint login/accounts units) — completed — supported role summaries and existing creation form; 18 account tests pass. Commit `4823b88`.
+- T4 — S1/S2/S3/S4 — inline — completed — arbitrary month selection, preflight reload, submission lock, exact current-RPC amount review and honest per-installment outcomes. Independent verifier found no introduced blockers. Commit `4823b88`.
 
 ## Log
 
@@ -28,3 +28,4 @@ Delivery: local work-unit commits; no remote publication requested. Forecast: 1,
 - L8 — Independent verifier used fresh system-temp copies, including baseline 851a9f9. Baseline browser 6/6, current browser 12/12, four extra probes 4/4, account 18/18, build and lint pass. Additional probes cover newly paid selections preserving server data, ALREADY_PAID stopping later IDs, actual returned payment amounts, and unmount preventing subsequent payments. Probes incorporated into the repository suite. S1 qualified: verifier checked geometry but did not independently compare Figma pixels; parent visually compared screen screenshots and corrected font/control weight, desktop login spacing and navigation icon variants.
 - L9 — Read-only RDD mode query succeeded outside the restricted process: on by default. Initial candidate assessment was unassessable/high because newly authored files were untracked; final assessment will use the completed committed candidate. No mode preference was changed. The requested gpt-6.1-luna worker profile was unavailable; parallel writers used the exposed gpt-6-luna/high profile and received independent gpt-6.1-sol/medium verification.
 - L10 — Documentation: docs/figma-redesign.md explains use, preserved financial behavior, partial-failure handling, unsupported existing partial balances, verification and rollback boundary. No Supabase migration, account endpoint or auth context was changed. Engram mirror remains pending after explicit project writes were rejected.
+- L11 — Final integrated check: 16/16 browser tests, 18/18 account tests, production build, TypeScript and diff whitespace check pass. Only the baseline AppContext Fast Refresh lint warning remains. Local implementation commit `4823b889a7bc58120354452a865f825c1321ad78` contains the coherent redesign with its tests/docs. Native assessment against `851a9f9`: high risk, `review_due=true`, payments hot path; 52 changed paths and 2,370 changed lines including generated/exported assets. Review is pending candidate-specific user consent; no review approval is claimed. No remote publication occurred.
