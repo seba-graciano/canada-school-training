@@ -1,595 +1,237 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "./supabase";
-import _ from "lodash";
-import * as Icons from "react-icons/fa";
-import { useApp } from "./AppContext";
-import AccountScreen from "./accounts/AccountScreen";
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { FormEvent } from 'react'
+import { supabase } from './supabase'
+import { useApp } from './AppContext'
+import AccountScreen from './accounts/AccountScreen'
+import AppShell from './ui/AppShell'
+import DesignIcon from './ui/DesignIcon'
+import PaymentScreen from './payments/PaymentScreen'
+import type { Student } from './payments/PaymentScreen'
+import { money } from './payments/installments'
+import './dashboard.css'
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 50
+const API_BATCH_SIZE = 1000
+const courses: Record<string, string[]> = {
+  Inicial: ['Inicial'],
+  Primario: ['1º Primaria', '2º Primaria', '3º Primaria', '4º Primaria', '5º Primaria', '6º Primaria'],
+  Secundario: ['1º Secundaria', '2º Secundaria', '3º Secundaria', '4º Secundaria', '5º Secundaria', '6º Secundaria'],
+}
+const emptyStudent = { nombre: '', apellido: '', dni: '', arancel: '', tutor: '', nivel: 'Primario', curso: '1º Primaria' }
+
+function normalizeStudent(row: Record<string, unknown>): Student {
+  const text = (value: unknown) => typeof value === 'string' ? value : ''
+  const number = (value: unknown) => Number(value ?? 0)
+  return {
+    id: number(row.id), nombre: text(row.nombre), apellido: text(row.apellido), dni: text(row.dni),
+    nivel: text(row.nivel), curso: text(row.curso), hermanos: number(row.hermanos),
+    descuento_hermano: number(row.descuento_hermano), arancel_base: number(row.arancel_base),
+    cuotas_saldadas: number(row.cuotas_saldadas), mora: number(row.mora), deuda: number(row.deuda),
+    tutor_email: text(row.tutor_email),
+  }
+}
+
+async function readAllPages<T>(readPage: (start: number, end: number) => PromiseLike<{ data: T[] | null; error: unknown }>) {
+  const rows: T[] = []
+  let start = 0
+  while (true) {
+    const { data, error } = await readPage(start, start + API_BATCH_SIZE - 1)
+    if (error) throw error
+    const page = data ?? []
+    if (!page.length) return rows
+    rows.push(...page)
+    start += page.length
+  }
+}
 
 export default function AdminDashboard() {
-  const [alumnos, setAlumnos] = useState<any>([]);
-  const [tutores, setTutores] = useState<any>([]);
-  const [loading, setLoading] = useState(true);
-  const { user, userRole, logout, setFiltro } = useApp();
-  const [contador, setContador] = useState(0);
-  const [detalle, setDetalle] = useState<any>(null);
-  const [nuevoNombre, setNuevoNombre] = useState("");
-  const [nuevoApellido, setNuevoApellido] = useState("");
-  const [nuevoDni, setNuevoDni] = useState("");
-  const [nuevoArancel, setNuevoArancel] = useState("");
-  const [nuevoTutorId, setNuevoTutorId] = useState<number | null>(null);
-  const [nuevoNivel, setNuevoNivel] = useState("Primario");
-  const [nuevoCurso, setNuevoCurso] = useState("1º Primaria");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [appliedSearchQuery, setAppliedSearchQuery] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const dashboardRequest = useRef(0);
-  const mounted = useRef(false);
-  const [accountScreen, setAccountScreen] = useState(false);
-  const [toasts, setToasts] = useState<
-    Array<{ id: number; message: string; type: "success" | "error" | "info" }>
-  >([]);
+  const { userRole, setFiltro } = useApp()
+  const canManage = userRole === 'admin' || userRole === 'secretaria'
+  const [alumnos, setAlumnos] = useState<Student[]>([])
+  const [tutores, setTutores] = useState<{ id: number; nombre: string; apellido: string }[]>([])
+  const [tutorError, setTutorError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filters, setFilters] = useState({ query: '', level: '', course: '', debt: '' })
+  const [draftFilters, setDraftFilters] = useState({ level: '', course: '', debt: '' })
+  const [currentPage, setCurrentPage] = useState(1)
+  const [accountScreen, setAccountScreen] = useState(false)
+  const [student, setStudent] = useState<Student | null>(null)
+  const [paymentBusy, setPaymentBusy] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState(emptyStudent)
+  const [increasing, setIncreasing] = useState(false)
+  const mounted = useRef(false)
+  const dashboardRequest = useRef(0)
+  const createLock = useRef(false)
+  const increaseLock = useRef(false)
 
-  const showToast = (
-    message: string,
-    type: "success" | "error" | "info" = "info",
-  ) => {
-    const id = Date.now();
-    setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(
-      () => setToasts((prev) => prev.filter((t) => t.id !== id)),
-      3000,
-    );
-  };
-
-  const cursosPorNivel: Record<string, string[]> = {
-    Inicial: ["Inicial"],
-    Primario: [
-      "1º Primaria",
-      "2º Primaria",
-      "3º Primaria",
-      "4º Primaria",
-      "5º Primaria",
-      "6º Primaria",
-    ],
-    Secundario: [
-      "1º Secundaria",
-      "2º Secundaria",
-      "3º Secundaria",
-      "4º Secundaria",
-      "5º Secundaria",
-      "6º Secundaria",
-    ],
-  };
-
-  const validCursos = cursosPorNivel[nuevoNivel] ?? [];
-
-  const isAdmin = userRole === "admin";
-  const isSecretaria = userRole === "secretaria";
-  const canManageCuotas = isAdmin || isSecretaria;
-  const canCreateAlumno = isAdmin || isSecretaria;
-
-  const alumnosFiltrados = useMemo(() => {
-    if (appliedSearchQuery.length === 0) return alumnos;
-    try {
-      return alumnos.filter((a: any) =>
-        `${a.nombre} ${a.apellido}`.toLowerCase().includes(appliedSearchQuery.toLowerCase()) ||
-        a.dni?.includes(appliedSearchQuery)
-      );
-    } catch {
-      return [];
-    }
-  }, [alumnos, appliedSearchQuery]);
-  const totalPages = Math.ceil(alumnosFiltrados.length / PAGE_SIZE);
+  const filtered = useMemo(() => {
+    const query = filters.query.toLocaleLowerCase()
+    return alumnos.filter(item => (!query || `${item.nombre} ${item.apellido} ${item.apellido} ${item.nombre} ${item.dni}`.toLocaleLowerCase().includes(query))
+      && (!filters.level || item.nivel === filters.level)
+      && (!filters.course || item.curso === filters.course)
+      && (!filters.debt || (filters.debt === 'debt' ? Number(item.deuda) > 0 : Number(item.deuda) <= 0)))
+      .sort((a, b) => a.apellido.localeCompare(b.apellido, 'es') || a.nombre.localeCompare(b.nombre, 'es'))
+  }, [alumnos, filters])
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const page = Math.min(currentPage, totalPages)
+  const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   useEffect(() => {
-    mounted.current = true;
-    cargar();
-    cargarTutores();
-
-    const channel = supabase
-      .channel("pagos-live")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "pagos" },
-        () => cargar(),
-      )
-      .subscribe();
-
-    const intervalId = setInterval(() => {
-      setContador((c) => c + 1);
-    }, 5000);
-
+    mounted.current = true
+    void cargar()
+    if (canManage) void cargarTutores()
+    const channel = supabase.channel('pagos-live').on('postgres_changes',
+      { event: '*', schema: 'public', table: 'pagos' }, () => { void cargar() }).subscribe()
     return () => {
-      mounted.current = false;
-      dashboardRequest.current += 1;
-      supabase.removeChannel(channel);
-      clearInterval(intervalId);
-    };
-  }, []);
+      mounted.current = false
+      dashboardRequest.current += 1
+      void supabase.removeChannel(channel)
+    }
+  }, [canManage])
 
   async function cargar() {
-    if (!mounted.current) return;
-    const request = ++dashboardRequest.current;
-    setLoading(true);
+    if (!mounted.current) return
+    const request = ++dashboardRequest.current
+    setLoading(true)
+    setError('')
     try {
-      const { data, error } = await supabase.rpc("dashboard_alumnos");
-      if (!mounted.current || request !== dashboardRequest.current) return;
-      if (error) throw error;
-      const rows = data || [];
-      setAlumnos(rows);
-      setCurrentPage(1);
-    } catch (e) {
+      const data = await readAllPages((start, end) => supabase.rpc('dashboard_alumnos').range(start, end))
+      if (!mounted.current || request !== dashboardRequest.current) return
+      setAlumnos(data.map(row => normalizeStudent(row as Record<string, unknown>)))
+    } catch (error) {
       if (mounted.current && request === dashboardRequest.current) {
-        console.error("Error cargando dashboard:", e);
+        console.error('Error cargando dashboard:', error)
+        setError('No se pudieron actualizar los alumnos. Reintentá la consulta.')
       }
     } finally {
-      if (mounted.current && request === dashboardRequest.current) {
-        setLoading(false);
-      }
+      if (mounted.current && request === dashboardRequest.current) setLoading(false)
     }
   }
 
   async function cargarTutores() {
+    setTutorError('')
     try {
-      const { data, error } = await supabase.from("tutores").select("id, nombre, apellido, email");
-      if (error) throw error;
-      setTutores(data || []);
-    } catch (e) {
-      console.error("Error cargando tutores:", e);
+      const data = await readAllPages<{ id: number; nombre: string; apellido: string }>((start, end) => supabase.from('tutores')
+        .select('id, nombre, apellido, email').order('id').range(start, end))
+      if (mounted.current) setTutores(data ?? [])
+    } catch {
+      if (mounted.current) setTutorError('No se pudieron consultar los tutores. Reintentá la consulta.')
     }
   }
 
-  async function buscar(texto: string) {
-    setSearchQuery(texto);
-    setAppliedSearchQuery(texto);
-    setFiltro(texto);
-    setCurrentPage(1);
+  function search(event: FormEvent) {
+    event.preventDefault()
+    setFilters({ ...draftFilters, query: searchQuery.trim() })
+    setFiltro(searchQuery)
+    setCurrentPage(1)
   }
 
-  function handleSearchSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    buscar(searchQuery);
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") {
-      buscar(searchQuery);
+  async function crearAlumno(event: FormEvent) {
+    event.preventDefault()
+    if (!canManage || createLock.current) return
+    const nombre = form.nombre.trim()
+    const apellido = form.apellido.trim()
+    const dni = form.dni.trim()
+    const arancelText = form.arancel.trim()
+    const arancel = Number(arancelText)
+    const arancelCents = Math.round(arancel * 100)
+    if (!nombre) { setError('Complete el nombre del alumno'); return }
+    if (!apellido) { setError('Complete el apellido del alumno'); return }
+    if (!dni) { setError('Complete el DNI del alumno'); return }
+    if (!arancelText || !Number.isFinite(arancel) || arancel < 0 || !Number.isSafeInteger(arancelCents)) {
+      setError('Ingrese un arancel válido, finito y no negativo'); return
     }
-  }
-
-  function goToPage(page: number) {
-    if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
+    if (!form.tutor) { setError('Debe seleccionar un tutor'); return }
+    if (!courses[form.nivel]?.includes(form.curso)) { setError('Curso inválido para el nivel seleccionado'); return }
+    createLock.current = true
+    setCreating(true)
+    setError('')
+    try {
+      const { error } = await supabase.from('alumnos').insert({
+        nombre, apellido, dni,
+        nivel: form.nivel, curso: form.curso, tutor_id: Number(form.tutor),
+        arancel_base: arancelCents, activo: true,
+      }).select().single()
+      if (error) throw error
+      if (!mounted.current) return
+      setForm(emptyStudent)
+      setShowForm(false)
+      setNotice('Alumno creado')
+      void cargar()
+    } catch (error) {
+      if (mounted.current) setError(`Error al crear alumno: ${error instanceof Error ? error.message : 'No se pudo guardar. Conservamos los datos ingresados.'}`)
+    } finally {
+      createLock.current = false
+      if (mounted.current) setCreating(false)
     }
-  }
-
-  function previousPage() {
-    goToPage(currentPage - 1);
-  }
-
-  function nextPage() {
-    goToPage(currentPage + 1);
-  }
-
-  function getPaginatedAlumnos() {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    const end = start + PAGE_SIZE;
-    return _.orderBy(alumnosFiltrados, ["apellido"], ["asc"]).slice(start, end);
-  }
-
-  function verContacto(al: any) {
-    const email = al.tutor_email?.toLowerCase() ?? "sin email registrado";
-    setDetalle({ nombre: al.nombre + " " + al.apellido, email: email });
   }
 
   async function aumentarCuotas() {
+    if (!canManage || increaseLock.current) return
+    if (!window.confirm('Se aplicará un aumento del 15 % a todas las cuotas pendientes. ¿Continuar?')) return
+    increaseLock.current = true
+    setIncreasing(true)
+    setError('')
     try {
-      const { data, error } = await supabase.rpc("aumentar_cuotas_pendientes_15");
-      if (error) throw error;
-      showToast(`Aumento aplicado a ${data} cuotas pendientes`, "success");
-      cargar();
-    } catch (e: any) {
-      showToast("Error aplicando aumento: " + e.message, "error");
+      const { data, error } = await supabase.rpc('aumentar_cuotas_pendientes_15')
+      if (error) throw error
+      if (!mounted.current) return
+      setNotice(`Aumento aplicado a ${data} cuotas pendientes`)
+      void cargar()
+    } catch (error) {
+      if (mounted.current) setError(`Error aplicando aumento: ${error instanceof Error ? error.message : 'Intentá nuevamente.'}`)
+    } finally {
+      increaseLock.current = false
+      if (mounted.current) setIncreasing(false)
     }
   }
 
-  async function cobrar(cuota: any) {
-    const { data, error } = await supabase.rpc("cobrar_cuota", {
-      p_cuota_id: cuota.id,
-    });
+  function back() { if (!paymentBusy) setStudent(null) }
+  const currentStudent = student && (alumnos.find(item => item.id === student.id) ?? student)
+  if (accountScreen && userRole === 'admin') return <AccountScreen onBack={() => setAccountScreen(false)} onCreated={role => { if (role === 'tutor') void cargarTutores() }} />
 
-    if (error) {
-      showToast("Error de conexión: " + error.message, "error");
-      return;
-    }
-
-    const result = data as {
-      success: boolean;
-      error?: string;
-      code?: string;
-      message?: string;
-    };
-
-    if (!result.success) {
-      if (result.code === "ALREADY_PAID") {
-        showToast("Esta cuota ya está pagada", "error");
-      } else {
-        showToast(result.error ?? "Error al registrar el pago", "error");
-      }
-      return;
-    }
-
-    showToast(result.message ?? "Pago registrado", "success");
-    cargar();
-  }
-
-  async function crearAlumno() {
-    if (!nuevoTutorId) {
-      showToast("Debe seleccionar un tutor", "error");
-      return;
-    }
-    if (!validCursos.includes(nuevoCurso)) {
-      showToast("Curso inválido para el nivel seleccionado", "error");
-      return;
-    }
-    const nuevo: any = {
-      nombre: nuevoNombre,
-      apellido: nuevoApellido,
-      dni: nuevoDni,
-      nivel: nuevoNivel,
-      curso: nuevoCurso,
-      tutor_id: nuevoTutorId,
-      arancel_base: Math.round(Number(nuevoArancel) * 100),
-      activo: true,
-    };
-    try {
-      const { error } = await supabase
-        .from("alumnos")
-        .insert(nuevo)
-        .select()
-        .single();
-      if (error) throw error;
-      setNuevoNombre("");
-      setNuevoApellido("");
-      setNuevoDni("");
-      setNuevoArancel("");
-      setNuevoTutorId(null);
-      setNuevoNivel("Primario");
-      setNuevoCurso("1º Primaria");
-      showToast("Alumno creado", "success");
-      cargar();
-    } catch (e: any) {
-      showToast("Error al crear alumno: " + e.message, "error");
-    }
-  }
-
-  if (accountScreen && isAdmin) {
-    return <AccountScreen
-      onBack={() => setAccountScreen(false)}
-      onCreated={(role) => { if (role === "tutor") cargarTutores(); }}
-    />;
-  }
-
-  if (loading) {
-    return <div className="spin">Cargando alumnos...</div>;
-  }
-
-  const paginatedAlumnos = getPaginatedAlumnos();
-  const totalRecords = alumnosFiltrados.length;
-  const startRecord = totalRecords > 0 ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
-  const endRecord = Math.min(currentPage * PAGE_SIZE, totalRecords);
-  const roleLabel =
-    userRole === "admin"
-      ? "Administrador"
-      : userRole === "secretaria"
-        ? "Secretaría"
-        : "Tutor";
-
-  return (
-    <div style={{ padding: 20 }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 12,
-          marginBottom: 15,
-        }}
-      >
-        <div style={{ fontSize: 22, color: "#c0142c", fontWeight: "bold" }}>
-          <Icons.FaSchool style={{ verticalAlign: "middle", marginRight: 8 }} />
-          Canada School - Panel {roleLabel}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end", marginLeft: "auto", maxWidth: "100%" }}>
-          <div style={{ fontSize: 12, color: "#999", overflowWrap: "anywhere", minWidth: 0 }}>
-            {user?.email}{" "}
-            <span style={{ marginLeft: 8, color: "#c0142c" }}>●</span>
-          </div>
-          {isAdmin && (
-            <button type="button" className="btn" onClick={() => setAccountScreen(true)}>
-              Crear cuenta
-            </button>
-          )}
-          <button
-            className="btn"
-            style={{ fontSize: 12, padding: "4px 10px" }}
-            onClick={logout}
-          >
-            Salir
-          </button>
-          <div style={{ fontSize: 12, color: "#999" }}>refresh #{contador}</div>
-        </div>
+  return <AppShell active="students" section={student ? 'Cobro' : undefined} onStudents={back} onAccounts={() => { if (!paymentBusy) { setStudent(null); setAccountScreen(true) } }}>
+    {currentStudent ? <PaymentScreen key={currentStudent.id} student={currentStudent} canCollect={canManage} onBack={back} onRefresh={() => { void cargar() }} onBusy={setPaymentBusy} /> : <>
+      <div className="page-heading"><div><h1>{userRole === 'tutor' ? 'Mis alumnos' : 'Administración de alumnos'}</h1><p>Consultá la situación de cada alumno{canManage ? ' y registrá sus pagos.' : ' y el detalle de sus cuotas.'}</p></div>
+        {canManage && <button type="button" className="btn" onClick={() => setShowForm(previous => !previous)} aria-expanded={showForm} aria-controls="student-form"><DesignIcon name="plus" />Nuevo alumno</button>}
       </div>
-
-      <div style={{ marginBottom: 15 }}>
-        <form
-          onSubmit={handleSearchSubmit}
-          style={{
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
-          <input
-            placeholder="Buscar alumno..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            style={{ padding: 8, width: 260 }}
-          />
-          <button type="submit" className="btn">
-            Buscar
-          </button>
-{canManageCuotas && (
-              <button
-                type="button"
-                className="btn"
-                style={{ marginLeft: 10 }}
-                onClick={aumentarCuotas}
-              >
-                Aplicar aumento 15%
-              </button>
-            )}
-        </form>
-      </div>
-
-      {detalle && (
-        <div style={{ marginBottom: 15, background: "#eef", padding: 10 }}>
-          <b>Contacto de {detalle.nombre}:</b> {detalle.email}
-          <button
-            className="btn"
-            style={{ marginLeft: 10 }}
-            onClick={() => setDetalle(null)}
-          >
-            Cerrar
-          </button>
-        </div>
-      )}
-
-      {canCreateAlumno && (
-        <div style={{ marginBottom: 15, background: "#fff", padding: 10 }}>
-          <b>Nuevo alumno:</b>
-          <input
-            placeholder="Nombre"
-            value={nuevoNombre}
-            onChange={(e) => setNuevoNombre(e.target.value)}
-            style={{ marginLeft: 8 }}
-          />
-          <input
-            placeholder="Apellido"
-            value={nuevoApellido}
-            onChange={(e) => setNuevoApellido(e.target.value)}
-            style={{ marginLeft: 8 }}
-          />
-          <input
-            placeholder="DNI"
-            value={nuevoDni}
-            onChange={(e) => setNuevoDni(e.target.value)}
-            style={{ marginLeft: 8 }}
-          />
-          <input
-            placeholder="Arancel"
-            value={nuevoArancel}
-            onChange={(e) => setNuevoArancel(e.target.value)}
-            style={{ marginLeft: 8, width: 90 }}
-          />
-          <select
-            value={nuevoNivel}
-            onChange={(e) => {
-              setNuevoNivel(e.target.value);
-              setNuevoCurso(cursosPorNivel[e.target.value][0]);
-            }}
-            style={{ marginLeft: 8, width: 140 }}
-          >
-            <option value="Inicial">Inicial</option>
-            <option value="Primario">Primario</option>
-            <option value="Secundario">Secundario</option>
-          </select>
-          <select
-            value={nuevoCurso}
-            onChange={(e) => setNuevoCurso(e.target.value)}
-            style={{ marginLeft: 8, width: 160 }}
-          >
-            {validCursos.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          <select
-            value={nuevoTutorId ?? ""}
-            onChange={(e) =>
-              setNuevoTutorId(e.target.value ? Number(e.target.value) : null)
-            }
-            style={{ marginLeft: 8, width: 200 }}
-          >
-            <option value="">Seleccionar tutor...</option>
-            {tutores.map((t: any) => (
-              <option key={t.id} value={t.id}>
-                {t.nombre} {t.apellido}
-              </option>
-            ))}
-          </select>
-          <button
-            className="btn"
-            style={{ marginLeft: 8 }}
-            onClick={crearAlumno}
-          >
-            Crear
-          </button>
-        </div>
-      )}
-
-      <table>
-        <thead>
-          <tr>
-            <th>Nombre</th>
-            <th>DNI</th>
-            <th>Nivel</th>
-            <th>Curso</th>
-            <th>Hermanos</th>
-            <th>Desc.</th>
-            <th>Arancel</th>
-            <th>Saldadas</th>
-            <th>Mora</th>
-            <th>Deuda</th>
-            <th>Acción</th>
-          </tr>
-        </thead>
-        <tbody>
-          {paginatedAlumnos.map((a: any) => (
-            <tr key={a.id}>
-              <td>
-                <a
-                  onClick={() => verContacto(a)}
-                  style={{ cursor: "pointer", color: "#0645ad" }}
-                >
-                  {a.nombre} {a.apellido}
-                </a>
-              </td>
-              <td>{a.dni}</td>
-              <td>{a.nivel}</td>
-              <td>{a.curso}</td>
-              <td>{a.hermanos}</td>
-              <td>{(a.descuento_hermano * 100).toFixed(0)}%</td>
-              <td>${a.arancel_base.toFixed(2)}</td>
-              <td>{a.cuotas_saldadas}</td>
-              <td style={{ color: a.mora > 0 ? "#c0142c" : "#999" }}>
-                ${a.mora.toFixed(2)}
-              </td>
-              <td style={{ color: a.deuda > 0 ? "red" : "green" }}>
-                ${a.deuda.toFixed(2)}
-              </td>
-              <td>
-                {canManageCuotas && (
-                  <button
-                    className="btn"
-                    style={{
-                      marginRight: 4,
-                      fontSize: 11,
-                      padding: "3px 6px",
-                    }}
-                    onClick={async () => {
-                      // Fetch cuotas pendientes de este alumno on-demand
-                      const { data: cuotasAlumno } = await supabase
-                        .from("cuotas")
-                        .select("*")
-                        .eq("alumno_id", a.id)
-                        .not("estado", "ilike", "pagad%")
-                        .not("estado", "ilike", "pago")
-                        .not("estado", "ilike", "ok");
-                      if (cuotasAlumno && cuotasAlumno.length > 0) {
-                        // Tomar la primera pendiente (o podrías mostrar un selector)
-                        await cobrar(cuotasAlumno[0]);
-                      }
-                    }}
-                  >
-                    Cobrar
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {totalRecords > 0 && (
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginTop: 15,
-            padding: 10,
-          }}
-        >
-          <div style={{ fontSize: 14, color: "#666" }}>
-            Mostrando {startRecord} - {endRecord} de {totalRecords} alumnos (
-            {totalPages} página{totalPages !== 1 ? "s" : ""})
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button
-              className="btn"
-              onClick={previousPage}
-              disabled={currentPage === 1}
-              style={{ display: currentPage === 1 ? "none" : "inline-block" }}
-            >
-              Anterior
-            </button>
-            <span style={{ minWidth: 60, textAlign: "center" }}>
-              Página {currentPage} de {totalPages}
-            </span>
-            <button
-              className="btn"
-              onClick={nextPage}
-              disabled={currentPage === totalPages}
-              style={{
-                display: currentPage === totalPages ? "none" : "inline-block",
-              }}
-            >
-              Siguiente
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div
-        style={{
-          position: "fixed",
-          bottom: 20,
-          right: 20,
-          zIndex: 9999,
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-        }}
-      >
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            style={{
-              padding: "12px 16px",
-              borderRadius: 4,
-              background:
-                t.type === "error"
-                  ? "#c0142c"
-                  : t.type === "success"
-                    ? "#2e7d32"
-                    : "#1565c0",
-              color: "#fff",
-              boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-              minWidth: 200,
-              maxWidth: 350,
-            }}
-          >
-            {t.message}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+      {error && <div role="alert" className="error-message">{error}<button type="button" className="btn-link" onClick={() => { void cargar() }}>Reintentar</button></div>}
+      {notice && <div role="status" className="success-message">{notice}</div>}
+      {showForm && canManage && <section id="student-form" className="panel panel-padding new-student">
+        <div className="panel-header"><h2>Nuevo alumno</h2><button className="btn-link" type="button" disabled={creating} onClick={() => setShowForm(false)}>Cerrar</button></div>
+        {tutorError && <div role="alert" className="error-message">{tutorError}<button type="button" className="btn-link" onClick={() => { void cargarTutores() }}>Reintentar tutores</button></div>}
+        <form onSubmit={crearAlumno}><fieldset disabled={creating} className="form-grid">
+          {(['nombre', 'apellido', 'dni', 'arancel'] as const).map(key => <label className="field" key={key}>{({ nombre: 'Nombre', apellido: 'Apellido', dni: 'DNI', arancel: 'Arancel' })[key]}<input type={key === 'arancel' ? 'number' : 'text'} step={key === 'arancel' ? '0.01' : undefined} value={form[key]} onChange={event => setForm(previous => ({ ...previous, [key]: event.target.value }))} /></label>)}
+          <label className="field">Nivel<select value={form.nivel} onChange={event => setForm(previous => ({ ...previous, nivel: event.target.value, curso: courses[event.target.value][0] }))}>{Object.keys(courses).map(level => <option key={level}>{level}</option>)}</select></label>
+          <label className="field">Curso<select value={form.curso} onChange={event => setForm(previous => ({ ...previous, curso: event.target.value }))}>{courses[form.nivel].map(course => <option key={course}>{course}</option>)}</select></label>
+          <label className="field">Tutor<select value={form.tutor} onChange={event => setForm(previous => ({ ...previous, tutor: event.target.value }))}><option value="">Seleccionar tutor...</option>{tutores.map(tutor => <option key={tutor.id} value={tutor.id}>{tutor.nombre} {tutor.apellido}</option>)}</select></label>
+          <div className="form-actions"><button className="btn" type="submit" disabled={creating}>{creating ? 'Guardando...' : 'Crear alumno'}</button></div>
+        </fieldset></form>
+      </section>}
+      <form onSubmit={search} className="panel student-filters">
+        <label className="field search-field">Buscar alumno<span className="search-control"><input placeholder="Apellido, nombre o DNI" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} /><DesignIcon name="search" /></span></label>
+        <label className="field">Nivel<select value={draftFilters.level} onChange={event => setDraftFilters(previous => ({ ...previous, level: event.target.value, course: '' }))}><option value="">Todos los niveles</option>{[...new Set(alumnos.map(item => item.nivel))].sort().map(level => <option key={level}>{level}</option>)}</select></label>
+        <label className="field">Curso<select value={draftFilters.course} onChange={event => setDraftFilters(previous => ({ ...previous, course: event.target.value }))}><option value="">Todos los cursos</option>{[...new Set(alumnos.filter(item => !draftFilters.level || item.nivel === draftFilters.level).map(item => item.curso))].sort().map(course => <option key={course}>{course}</option>)}</select></label>
+        <label className="field">Estado de pago<select value={draftFilters.debt} onChange={event => setDraftFilters(previous => ({ ...previous, debt: event.target.value }))}><option value="">Todos los estados</option><option value="clear">Sin deuda</option><option value="debt">Con deuda</option></select></label>
+        <button type="submit" className="btn btn-secondary">Buscar</button>
+      </form>
+      <section className="panel students-list" aria-label="Listado de alumnos" aria-busy={loading}>
+        <div className="panel-header"><h2>Alumnos</h2><small>{loading ? 'Actualizando...' : 'Orden: apellido A–Z'}</small></div>
+        {loading && !alumnos.length ? <div className="spin">Cargando alumnos...</div> : !filtered.length ? <div className="empty-state"><h3>No se encontraron alumnos</h3><p>Revisá la búsqueda o limpiá los filtros para volver al listado.</p><button type="button" className="btn btn-secondary" onClick={() => { setSearchQuery(''); setFiltro(''); setFilters({ query: '', level: '', course: '', debt: '' }); setDraftFilters({ level: '', course: '', debt: '' }); setCurrentPage(1) }}>Limpiar filtros</button></div> : <>
+          <div className="student-table"><table><thead><tr><th>Alumno / DNI</th><th>Nivel / Curso</th><th className="numeric">Arancel</th><th className="numeric">Saldadas</th><th>Estado</th><th className="numeric">Deuda total</th><th className="numeric">Acción</th></tr></thead><tbody>{rows.map(item => <tr key={item.id}>
+            <td><button type="button" className="student-name" onClick={() => setStudent(item)}>{item.nombre} {item.apellido}</button><small>DNI {item.dni}</small></td><td>{item.nivel}<small>{item.curso}</small></td><td className="numeric">{money(Number(item.arancel_base))}</td><td className="numeric">{item.cuotas_saldadas}</td><td><span className={`badge ${Number(item.deuda) > 0 ? 'badge-warning' : 'badge-success'}`}>{Number(item.deuda) > 0 ? 'Con deuda' : 'Sin deuda'}</span></td><td className="numeric"><strong>{money(Number(item.deuda))}</strong></td><td className="numeric"><button type="button" className="btn-link" onClick={() => setStudent(item)}>{canManage && Number(item.deuda) > 0 ? 'Cobrar' : 'Ver ficha'}<DesignIcon name="chevron" /></button></td>
+          </tr>)}</tbody></table></div>
+          <div className="student-cards">{rows.map(item => <article className="student-card" key={item.id}><div className="student-card-heading"><div><h3>{item.nombre} {item.apellido}</h3><small>DNI {item.dni}</small></div><span className={`badge ${Number(item.deuda) > 0 ? 'badge-warning' : 'badge-success'}`}>{Number(item.deuda) > 0 ? 'Con deuda' : 'Sin deuda'}</span></div><p className="student-school">{item.nivel} · {item.curso} · {item.cuotas_saldadas} cuotas saldadas</p><dl><div><dt>Arancel</dt><dd>{money(Number(item.arancel_base))}</dd></div><div><dt>Deuda total</dt><dd className="card-debt">{money(Number(item.deuda))}</dd></div></dl><button type="button" className="btn btn-secondary" onClick={() => setStudent(item)}><DesignIcon name="chevron" />{canManage && Number(item.deuda) > 0 ? 'Cobrar' : 'Ver ficha del alumno'}</button></article>)}</div>
+          <div className="pagination"><span>Mostrando {filtered.length ? (page - 1) * PAGE_SIZE + 1 : 0}–{Math.min(page * PAGE_SIZE, filtered.length)} de {filtered.length} alumnos</span><div><button className="btn btn-secondary" type="button" disabled={page === 1} onClick={() => setCurrentPage(page - 1)}>Anterior</button><span>Página {page} de {totalPages}</span><button className="btn btn-secondary" type="button" disabled={page === totalPages} onClick={() => setCurrentPage(page + 1)}>Siguiente</button></div></div>
+        </>}
+      </section>
+      <p className="list-footnote">Hermanos, descuento, mora y detalle de cuotas están disponibles en la ficha del alumno.</p>
+      {canManage && <section className="panel fee-management"><DesignIcon name="sliders" /><div><h3>Gestión de aranceles</h3><p>Aplicá el aumento vigente a todas las cuotas pendientes.</p></div><button type="button" className="btn btn-secondary" onClick={aumentarCuotas} disabled={increasing}>{increasing ? 'Aplicando aumento...' : 'Aplicar aumento 15%'}</button></section>}
+    </>}
+  </AppShell>
 }

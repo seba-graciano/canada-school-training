@@ -1,7 +1,6 @@
 import Login from './Login'
 import AdminDashboard from './AdminDashboard'
 import { useApp } from './AppContext'
-import { AppProvider } from './AppContext'
 
 function AppContent() {
   const { user, setUser, userRole, tutorId, logout } = useApp()
@@ -21,11 +20,7 @@ function AppContent() {
 }
 
 function App() {
-  return (
-    <AppProvider>
-      <AppContent />
-    </AppProvider>
-  )
+  return <AppContent />
 }
 
 export default App

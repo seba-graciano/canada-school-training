@@ -1,7 +1,9 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { supabase } from './supabase'
+import { decodeJwtPayload } from './auth/session'
 
 const AppContext = createContext<any>(null)
+const allowedRoles = new Set(['admin', 'secretaria', 'tutor'])
 
 export function AppProvider(props: any) {
   const [user, setUser] = useState<any>(null)
@@ -14,39 +16,39 @@ export function AppProvider(props: any) {
 
   // Restore session on mount
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        const payload = JSON.parse(atob(session.access_token.split('.')[1]))
-        const userRoleFromToken = payload.user_role
-        const tutorIdFromToken = payload.tutor_id
+    let active = true
+    let authEventCount = 0
+    const applySession = (session: Awaited<ReturnType<typeof supabase.auth.getSession>>['data']['session'] | null) => {
+      if (!active) return
+      setUser(null)
+      setUserRole(null)
+      setTutorId(null)
+      setAlumnos([])
+      setCuotas([])
 
-        if (userRoleFromToken) {
-          setUser({ id: session.user.id, email: session.user.email })
-          setUserRole(userRoleFromToken)
-          setTutorId(tutorIdFromToken)
-        }
-      }
-    })
+      if (!session) return
+      const payload = decodeJwtPayload(session.access_token)
+      const userRoleFromToken = payload?.user_role
+      if (typeof userRoleFromToken !== 'string' || !allowedRoles.has(userRoleFromToken)) return
+
+      setUser({ id: session.user.id, email: session.user.email })
+      setUserRole(userRoleFromToken)
+      setTutorId((payload?.tutor_id as number | null | undefined) ?? null)
+    }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) {
-        const payload = JSON.parse(atob(session.access_token.split('.')[1]))
-        const userRoleFromToken = payload.user_role
-        const tutorIdFromToken = payload.tutor_id
-
-        if (userRoleFromToken) {
-          setUser({ id: session.user.id, email: session.user.email })
-          setUserRole(userRoleFromToken)
-          setTutorId(tutorIdFromToken)
-        }
-      } else {
-        setUser(null)
-        setUserRole(null)
-        setTutorId(null)
-      }
+      if (!active) return
+      authEventCount += 1
+      applySession(session)
     })
 
-    return () => subscription.unsubscribe()
+    void supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (authEventCount === 0) applySession(error ? null : session)
+    }).catch(() => {
+      if (authEventCount === 0) applySession(null)
+    })
+
+    return () => { active = false; subscription.unsubscribe() }
   }, [])
 
   const login = (userData: any) => {

@@ -1,3 +1,6 @@
+begin;
+
+-- Keep the legacy fixture generator stable; canonicalize before committing it.
 select setseed(0.4242);
 truncate table pagos, cuotas, alumnos, tutores restart identity cascade;
 insert into tutores (nombre, apellido, dni, email, telefono)
@@ -40,3 +43,12 @@ insert into pagos (cuota_id, monto_abonado, medio_pago, fecha_pago)
 select c.id, floor(c.monto) + 0.10, 'transferencia', c.fecha_vencimiento from cuotas c where c.id % 50 = 0
 union all
 select c.id, 0.20, 'transferencia', c.fecha_vencimiento from cuotas c where c.id % 50 = 0;
+
+-- Only canonical labels leave this one-time, pre-migration import transaction.
+update cuotas set estado = case
+  when lower(btrim(estado)) in ('pagado','pagada','pago','ok') then 'Pagada'
+  when lower(btrim(estado)) = 'pendiente' then 'Pendiente'
+  when lower(btrim(estado)) in ('vencida','vencido') then 'Vencida'
+end;
+
+commit;

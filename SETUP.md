@@ -28,10 +28,14 @@ esquema local. Deben aplicarse todos, no solamente `0001_schema.sql`.
 1. Aplique `0001_schema.sql` en el SQL Editor del proyecto nuevo.
 2. Opcionalmente, aplique `supabase/seed.sql` **en este momento**, antes de las
    migraciones restantes. Es un seed heredado: trunca tablas, usa pesos, fechas
-   de texto y estados anteriores a la normalización. No sirve como seed posterior
+   de texto; sus estados ya usan `Pagada`, `Pendiente` y `Vencida`. No sirve como seed posterior
    al esquema final ni para una base con datos que deban conservarse.
 3. Aplique los archivos restantes en orden de nombre. La secuencia y las
    verificaciones están en [la guía de migraciones](docs/tutor-accounts.md#migration-order-and-identities).
+4. Aplique el contenido completo de
+   [support_legacy_installment_states.sql](supabase/patches/support_legacy_installment_states.sql)
+   para fijar el contrato canónico de estados y su clasificador SQL. El archivo
+   contiene su propia transacción; no modifica importes ni pagos.
 
 Las migraciones posteriores convierten fechas e importes a sus tipos definitivos
 y normalizan los estados. No ejecute `supabase db reset` con este seed esperando
@@ -83,7 +87,22 @@ npm run lint
 Vite muestra la URL efectiva; normalmente es `http://localhost:5173`. Las pruebas
 de cuentas, SQL y regresiones de interfaz se describen en
 [la guía de cuentas](docs/tutor-accounts.md#local-checks) y
-[las correcciones de auditoría](docs/supplemental-audit-fixes.md).
+[las correcciones de auditoría](docs/audit-findings.md#pruebas-reproducibles).
+
+La migración `20261020205312_audit_financial_integrity.sql` corrige saldos, cobros
+y descuentos por orden de alta: 0% al primer hijo, 10% al segundo y 20% desde el
+tercero. Debe estar aplicada antes de usar el nuevo cobro confirmado desde la UI.
+Conserva cuotas pagadas y comprobantes; no aumenta cuotas con pagos parciales.
+
+El único contrato de estados es `Pagada`, `Pendiente` y `Vencida`. En bases
+existentes, el parche transaccional
+[support_legacy_installment_states.sql](supabase/patches/support_legacy_installment_states.sql)
+convierte etiquetas históricas conocidas, fija el default `Pendiente` y rechaza
+variantes, estados desconocidos y NULL en escrituras nuevas. Sólo cambia `estado`;
+conserva importes y comprobantes. Si encuentra un estado existente desconocido o
+NULL, aborta sin cambios para que se revise explícitamente. Sustituye la propuesta
+anterior que admitía seis etiquetas. Es un parche SQL manual; no registra ni
+repara automáticamente el historial de migraciones.
 
 Un build local correcto no demuestra que el hook, las migraciones o las Edge
 Functions estén desplegados. Para bases existentes, use la verificación del
