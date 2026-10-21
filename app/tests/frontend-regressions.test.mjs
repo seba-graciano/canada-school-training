@@ -53,14 +53,18 @@ function row(id, nombre, debt = 1000) {
     hermanos: 1, descuento_hermano: 0, arancel_base: 1000, cuotas_saldadas: 0, mora: 0, deuda: debt }
 }
 
-async function open(t, { strict = false, role = 'admin', installments = [], paymentResults = [] } = {}) {
+async function open(t, { strict = false, role = 'admin', installments = [], paymentResults = [],
+  responseCap = Number.MAX_SAFE_INTEGER, tutorRows = [], tutorFailures = 0, quotaFailures = 0 } = {}) {
   const context = await browser.newContext()
   t.after(() => context.close())
   const requests = [], waiters = [], errors = []
   let logoutStatus = 204, logoutCalls = 0, dashboardCalls = 0
-  const paymentCalls = []
+  let tutorFailuresRemaining = tutorFailures, quotaFailuresRemaining = quotaFailures
+  let dashboardRows = null
+  const paymentCalls = [], paymentRequests = [], studentInserts = [], dashboardRanges = [], tutorRanges = []
   await context.addInitScript(({ key, role }) => {
     const payload = btoa(JSON.stringify({ user_role: role, tutor_id: 7 }))
+      .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
     localStorage.setItem(key, JSON.stringify({
       access_token: `header.${payload}.signature`, refresh_token: 'fake-refresh', token_type: 'bearer',
       expires_at: Math.floor(Date.now() / 1000) + 3600, expires_in: 3600,
@@ -76,10 +80,21 @@ async function open(t, { strict = false, role = 'admin', installments = [], paym
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers })
     if (url.pathname === '/rest/v1/rpc/dashboard_alumnos') {
       const index = dashboardCalls++
+      const range = route.request().headers().range ?? '0-'
+      const start = Number(url.searchParams.get('offset') ?? range.match(/^(\d+)-/)?.[1] ?? 0)
+      dashboardRanges.push(start)
+      if (start > 0 && dashboardRows) {
+        const page = dashboardRows.slice(start, start + responseCap)
+        const end = start + page.length - 1
+        return route.fulfill({ status: 206, headers: { ...headers, 'content-range': page.length ? `${start}-${end}/${dashboardRows.length}` : `*/${dashboardRows.length}` }, body: JSON.stringify(page) })
+      }
       const request = {
         async fulfill(data, status = 200) {
-          await route.fulfill({ status, headers, body: JSON.stringify(data) })
-          await page.waitForFunction(index => window.audit.completed[index], index)
+          if (Array.isArray(data)) dashboardRows = data
+          const responsePage = Array.isArray(data) ? data.slice(start, start + responseCap) : data
+          const end = start + (Array.isArray(responsePage) ? responsePage.length : 0) - 1
+          await route.fulfill({ status, headers: status < 400 && Array.isArray(responsePage)
+            ? { ...headers, 'content-range': responsePage.length ? `${start}-${end}/${data.length}` : `*/${data.length}` } : headers, body: JSON.stringify(responsePage) })
           await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
         },
       }
@@ -92,16 +107,42 @@ async function open(t, { strict = false, role = 'admin', installments = [], paym
       return route.fulfill({ status: logoutStatus, headers,
         ...(logoutStatus === 204 ? {} : { body: JSON.stringify({ message: 'Simulated auth outage' }) }) })
     }
-    if (url.pathname === '/rest/v1/tutores') return route.fulfill({ status: 200, headers, body: '[]' })
+    if (url.pathname === '/rest/v1/tutores') {
+      const range = route.request().headers().range ?? '0-'
+      const start = Number(url.searchParams.get('offset') ?? range.match(/^(\d+)-/)?.[1] ?? 0)
+      tutorRanges.push(start)
+      if (tutorFailuresRemaining > 0) {
+        tutorFailuresRemaining--
+        return route.fulfill({ status: 500, headers, body: JSON.stringify({ message: 'Simulated tutor read failure' }) })
+      }
+      const page = tutorRows.slice(start, start + responseCap)
+      const end = start + page.length - 1
+      return route.fulfill({ status: 206, headers: { ...headers, 'content-range': page.length ? `${start}-${end}/${tutorRows.length}` : `*/${tutorRows.length}` }, body: JSON.stringify(page) })
+    }
+    if (url.pathname === '/rest/v1/alumnos' && route.request().method() === 'POST') {
+      const input = route.request().postDataJSON()
+      studentInserts.push(input)
+      return route.fulfill({ status: 201, headers, body: JSON.stringify({ id: 99, ...input }) })
+    }
     if (url.pathname === '/rest/v1/rpc/admin_list_accounts') return route.fulfill({
       status: 200, headers, body: JSON.stringify({ accounts: [], total: 0, page: 1, page_size: 20 }),
     })
-    if (url.pathname === '/rest/v1/cuotas') return route.fulfill({ status: 200, headers, body: JSON.stringify(installments) })
-    if (url.pathname === '/rest/v1/rpc/cobrar_cuota') {
-      const id = route.request().postDataJSON().p_cuota_id
+    if (url.pathname === '/rest/v1/cuotas') {
+      if (quotaFailuresRemaining > 0) {
+        quotaFailuresRemaining--
+        return route.fulfill({ status: 500, headers, body: JSON.stringify({ message: 'Simulated quota read failure' }) })
+      }
+      return route.fulfill({ status: 200, headers, body: JSON.stringify(installments) })
+    }
+    if (url.pathname === '/rest/v1/rpc/cobrar_cuota_confirmada' || url.pathname === '/rest/v1/rpc/cobrar_cuota') {
+      const body = route.request().postDataJSON()
+      const id = body.p_cuota_id
       paymentCalls.push(id)
       const amount = installments.find(item => item.id === id)
-      const result = paymentResults.shift() ?? { success: true, monto_pagado: amount.monto + amount.recargo - amount.descuento }
+      const actualAmount = amount.monto + amount.recargo - amount.descuento
+      paymentRequests.push({ id, expected: body.p_monto_esperado ?? null })
+      const result = paymentResults.shift() ?? (body.p_monto_esperado !== undefined && body.p_monto_esperado !== actualAmount
+        ? { success: false, code: 'AMOUNT_CHANGED' } : { success: true, monto_pagado: actualAmount })
       if (result.success) {
         const installment = installments.find(item => item.id === id)
         installment.estado = 'Pagada'
@@ -115,10 +156,14 @@ async function open(t, { strict = false, role = 'admin', installments = [], paym
   page.setDefaultTimeout(5000)
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
   await page.goto(`${origin}/__audit${strict ? '?strict' : ''}`)
-  const next = () => requests.length ? Promise.resolve(requests.shift()) : new Promise(resolve => waiters.push(resolve))
+  const next = () => requests.length ? Promise.resolve(requests.shift()) : new Promise((resolve, reject) => {
+    const timeout = setTimeout(async () => reject(new Error(`No dashboard request arrived. UI: ${await page.locator('body').innerText().catch(() => '')}; browser errors: ${errors.join(' | ')}`)), 5000)
+    timeout.unref()
+    waiters.push(value => { clearTimeout(timeout); resolve(value) })
+  })
   const refresh = () => page.evaluate(() => window.audit.refresh())
-  return { page, next, refresh, errors, paymentCalls, installments, failLogout: () => { logoutStatus = 503 },
-    allowLogout: () => { logoutStatus = 204 }, logoutCalls: () => logoutCalls }
+  return { page, next, refresh, errors, paymentCalls, paymentRequests, studentInserts, dashboardRanges, tutorRanges,
+    installments, failLogout: () => { logoutStatus = 503 }, allowLogout: () => { logoutStatus = 204 }, logoutCalls: () => logoutCalls }
 }
 
 async function initial(t) {
@@ -176,6 +221,7 @@ test('single installment collection requires selection and review and prevents r
   await confirm.evaluate(button => { button.click(); button.click() })
   await h.page.getByRole('status').filter({ hasText: /1 cuota cobrada/ }).waitFor()
   assert.deepEqual(h.paymentCalls, [3])
+  assert.deepEqual(h.paymentRequests, [{ id: 3, expected: 95000 }])
   assert.equal(h.installments[0].estado, 'Pendiente')
   await (await h.next()).fulfill([row(1, 'Ana')])
 })
@@ -221,6 +267,96 @@ test('partial balances cannot be overcharged and tutors remain read only', { tim
   assert.equal(await tutor.page.getByRole('checkbox').count(), 0)
 })
 
+test('null student fields from the dashboard render and sort safely', { timeout: 20000 }, async t => {
+  const h = await open(t)
+  const missing = { ...row(1, 'Ignored'), nombre: null, apellido: null, dni: null }
+  await (await h.next()).fulfill([row(2, 'Beto'), missing, row(3, 'Carla')])
+  await h.page.waitForTimeout(150)
+  assert.equal(await h.page.locator('tbody tr').count(), 3, JSON.stringify({ errors: h.errors, ranges: h.dashboardRanges,
+    text: await h.page.locator('body').innerText() }))
+  assert.equal(h.errors.some(message => /localeCompare|Cannot read properties/.test(message)), false)
+  assert.match(await h.page.locator('tbody').innerText(), /Beto/)
+})
+
+test('student creation rejects blank required identity and invalid fees without inserting', { timeout: 20000 }, async t => {
+  const h = await open(t, { tutorRows: [{ id: 7, nombre: 'Tutor', apellido: 'Uno', email: null }] })
+  await (await h.next()).fulfill([row(1, 'Ana')])
+  await h.page.getByRole('button', { name: 'Nuevo alumno', exact: true }).click()
+  const name = h.page.getByLabel('Nombre')
+  const surname = h.page.getByLabel('Apellido')
+  const dni = h.page.getByLabel('DNI')
+  const fee = h.page.getByLabel('Arancel')
+  await name.fill('   '); await surname.fill('Pérez'); await dni.fill('123'); await fee.fill('100')
+  await h.page.getByRole('button', { name: 'Crear alumno', exact: true }).click()
+  assert.match(await h.page.getByRole('alert').innerText(), /nombre/i)
+  await name.fill('Ana'); await surname.fill('   ')
+  await h.page.getByRole('button', { name: 'Crear alumno', exact: true }).click()
+  assert.match(await h.page.getByRole('alert').innerText(), /apellido/i)
+  await surname.fill('Pérez'); await dni.fill('   ')
+  await h.page.getByRole('button', { name: 'Crear alumno', exact: true }).click()
+  assert.match(await h.page.getByRole('alert').innerText(), /DNI/i)
+  await dni.fill('123'); await fee.fill('')
+  await h.page.getByRole('button', { name: 'Crear alumno', exact: true }).click()
+  assert.match(await h.page.getByRole('alert').innerText(), /arancel/i)
+  await fee.fill('-1')
+  await h.page.getByRole('button', { name: 'Crear alumno', exact: true }).click()
+  assert.match(await h.page.getByRole('alert').innerText(), /arancel/i)
+  assert.deepEqual(h.studentInserts, [])
+  await name.fill(' Ana '); await surname.fill(' Pérez '); await dni.fill(' 123 '); await fee.fill('0')
+  await h.page.getByLabel('Tutor').selectOption('7')
+  await h.page.getByRole('button', { name: 'Crear alumno', exact: true }).click()
+  await h.page.getByRole('status').filter({ hasText: 'Alumno creado' }).waitFor()
+  assert.deepEqual(h.studentInserts[0], {
+    nombre: 'Ana', apellido: 'Pérez', dni: '123', nivel: 'Primario', curso: '1º Primaria',
+    tutor_id: 7, arancel_base: 0, activo: true,
+  })
+})
+
+test('tutor read failure is visible and can be retried', { timeout: 20000 }, async t => {
+  const h = await open(t, { tutorRows: [{ id: 7, nombre: 'Tutor', apellido: 'Uno', email: null }], tutorFailures: 1 })
+  await (await h.next()).fulfill([row(1, 'Ana')])
+  await h.page.getByRole('button', { name: 'Nuevo alumno', exact: true }).click()
+  await h.page.getByRole('alert').filter({ hasText: /tutores/i }).waitFor()
+  await h.page.getByRole('button', { name: 'Reintentar tutores', exact: true }).click()
+  await h.page.getByRole('option', { name: 'Tutor Uno' }).waitFor({ state: 'attached' })
+  assert.deepEqual(h.tutorRanges, [0, 0, 1])
+})
+
+test('dashboard and tutor reads continue through short capped pages until empty', { timeout: 20000 }, async t => {
+  const tutors = Array.from({ length: 5 }, (_, index) => ({ id: index + 1, nombre: `Tutor${index + 1}`, apellido: 'Uno', email: null }))
+  const h = await open(t, { responseCap: 2, tutorRows: tutors })
+  await (await h.next()).fulfill(Array.from({ length: 5 }, (_, index) => row(index + 1, `Alumno${index + 1}`)))
+  await h.page.locator('tbody tr').nth(4).waitFor()
+  await h.page.getByRole('button', { name: 'Nuevo alumno', exact: true }).click()
+  await h.page.getByRole('option', { name: 'Tutor5 Uno' }).waitFor({ state: 'attached' })
+  assert.deepEqual(h.dashboardRanges, [0, 2, 4, 5])
+  assert.deepEqual(h.tutorRanges, [0, 2, 4, 5])
+  assert.equal(await h.page.locator('tbody tr').count(), 5)
+})
+
+test('payment realtime refresh clears a reviewed selection when its amount changes', { timeout: 20000 }, async t => {
+  const h = await paymentScreen(t, { installments: [installment(2, 2)] })
+  await h.page.getByRole('checkbox', { name: 'Febrero 2026' }).check()
+  await h.page.getByRole('checkbox', { name: 'Revisé el alumno, las cuotas y el importe.' }).check()
+  h.installments[0].monto = 200000
+  await h.refresh()
+  await (await h.next()).fulfill([row(1, 'Ana')])
+  await h.page.waitForFunction(() => document.querySelector('.installment-total strong')?.textContent?.includes('1.950,00'))
+  assert.match(await h.page.getByTestId('collection-total').innerText(), /0,00/)
+  assert.equal(await h.page.getByRole('checkbox', { name: 'Febrero 2026' }).isChecked(), false)
+  assert.equal(await h.page.getByRole('checkbox', { name: 'Revisé el alumno, las cuotas y el importe.' }).isChecked(), false)
+  assert.equal(await h.page.getByRole('button', { name: 'Confirmar cobro', exact: true }).isDisabled(), true)
+  assert.deepEqual(h.paymentCalls, [])
+})
+
+test('successful quota retry clears the previous load error', { timeout: 20000 }, async t => {
+  const h = await paymentScreen(t, { installments: [installment(2, 2)], quotaFailures: 1 })
+  await h.page.getByRole('alert').filter({ hasText: /No se pudieron consultar las cuotas/ }).waitFor()
+  await h.page.getByRole('button', { name: 'Reintentar consulta', exact: true }).click()
+  await h.page.getByRole('checkbox', { name: 'Febrero 2026' }).waitFor()
+  assert.equal(await h.page.getByRole('alert').count(), 0)
+})
+
 test('redesigned screens fit desktop, tablet and mobile with locally resolved assets', { timeout: 30000 }, async t => {
   const h = await initial(t)
   const screenshotDir = process.env.REDESIGN_SCREENSHOTS
@@ -229,12 +365,21 @@ test('redesigned screens fit desktop, tablet and mobile with locally resolved as
     for (const width of [390, 768, 1440]) {
       await h.page.setViewportSize({ width, height: 960 })
       await h.page.evaluate(() => document.fonts.ready)
-      await h.page.waitForFunction(() => Array.from(document.images)
-        .filter(image => image.getClientRects().length > 0)
-        .every(image => image.complete && image.naturalWidth > 0))
+      await h.page.waitForFunction(async () => {
+        const images = Array.from(document.images).filter(image => image.getClientRects().length > 0)
+        if (images.some(image => !image.currentSrc)) return false
+        const sources = images.map(image => image.currentSrc)
+        await Promise.all(images.map(image => image.decode().catch(() => undefined)))
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+        return images.every((image, index) => image.currentSrc === sources[index]
+          && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0)
+      })
       assert.equal(await h.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${name}: horizontal overflow at ${width}`)
-      const images = await h.page.locator('img:visible').evaluateAll(images => images.map(image => ({ src: image.currentSrc, loaded: image.complete && image.naturalWidth > 0, width: image.width, naturalWidth: image.naturalWidth })))
-      assert.equal(images.every(image => image.loaded && image.width === image.naturalWidth), true, `${name}: SVG slot geometry`)
+      const images = await h.page.locator('img:visible').evaluateAll(images => images.map(image => ({ src: image.currentSrc,
+        loaded: image.complete && image.naturalWidth > 0, width: image.width, height: image.height,
+        naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight })))
+      assert.equal(images.every(image => image.loaded && image.width === image.naturalWidth), true,
+        `${name}: SVG slot geometry ${JSON.stringify(images.filter(image => !image.loaded || image.width !== image.naturalWidth))}`)
       if (screenshotDir) await h.page.screenshot({ path: path.join(screenshotDir, `${name}-${width}.png`), fullPage: true })
     }
   }
@@ -377,7 +522,7 @@ test('unmount during first payment never starts another ID', { timeout: 20000 },
   const held = new Promise(resolve => { release = resolve })
   const started = new Promise(resolve => { signal = resolve })
   const calls = []
-  await h.page.route('**/rest/v1/rpc/cobrar_cuota', async route => {
+  await h.page.route('**/rest/v1/rpc/cobrar_cuota_confirmada', async route => {
     calls.push(route.request().postDataJSON().p_cuota_id)
     signal()
     await held

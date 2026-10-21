@@ -93,6 +93,9 @@ test('deleted or demoted administrator JWTs lose table and RPC privileges while 
     await asUser(db, ids.admin, 'admin')
     assert.deepEqual((await db.query('select id from tutores')).rows, [])
     await assert.rejects(db.query("select admin_list_accounts('',1,20)"), e => e.code === '42501')
+    await db.exec('reset role')
+    // A separate unpaid installment proves the remaining admin still has write authority.
+    await db.exec("insert into cuotas(alumno_id,monto,descuento,recargo,estado) values(1,10000,0,0,'Pendiente')")
     await asUser(db, ids.admin2, 'admin')
     assert.equal((await db.query('select aumentar_cuotas_pendientes_15() as count')).rows[0].count, 1)
   } finally { await db.close() }

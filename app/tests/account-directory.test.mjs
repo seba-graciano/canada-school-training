@@ -157,6 +157,15 @@ test('closes the action menu on Escape and outside click while restoring trigger
   assert.equal(await page.getByRole('menu').count(), 0)
 })
 
+test('clicking an open action trigger toggles its menu closed', async () => {
+  const trigger = page.getByRole('button', { name: 'Acciones para person01@example.com' })
+  await trigger.click()
+  await page.getByRole('menu').waitFor()
+  await trigger.click()
+  assert.equal(await page.getByRole('menu').count(), 0)
+  assert.equal(await trigger.getAttribute('aria-expanded'), 'false')
+})
+
 test('prevents duplicate deletion calls while the confirmation request is pending', async () => {
   await page.evaluate(() => { window.accountDirectory.delayDelete = true })
   const email = 'person01@example.com'
@@ -165,9 +174,20 @@ test('prevents duplicate deletion calls while the confirmation request is pendin
   const confirm = page.getByRole('button', { name: 'Eliminar cuenta' }).last()
   await confirm.click()
   await page.getByRole('button', { name: 'Eliminando...' }).waitFor()
+  assert.notEqual(await page.locator('.account-app-background').getAttribute('inert'), null)
+  await page.keyboard.press('Tab')
+  assert.equal(await page.getByRole('alertdialog').evaluate(dialog => dialog.contains(document.activeElement)), true)
   await page.locator('.account-delete-confirm').evaluate(button => button.click())
   await page.getByRole('status').filter({ hasText: 'Se eliminó la cuenta' }).waitFor()
   assert.equal(await page.evaluate(() => window.accountDirectory.deleteCalls.length), 1)
+})
+
+test('clears account authorization when an auth session has no role claim', async () => {
+  await page.evaluate(() => window.accountDirectory.authHandler?.('SIGNED_IN', {
+    access_token: `e30.${btoa(JSON.stringify({})).replace(/=/g, '')}.signature`,
+    user: { id: 'roleless-user', email: 'roleless@example.com' },
+  }))
+  await page.getByRole('alert').getByText('No tiene permiso para crear cuentas.').waitFor()
 })
 
 test('keeps the requested screen within common viewport widths', async () => {

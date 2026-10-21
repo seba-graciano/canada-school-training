@@ -25,12 +25,12 @@ export function installmentTotal(item: Installment) {
 }
 
 export function paymentState(item: Installment) {
+  if (!['Pagada', 'Pendiente', 'Vencida'].includes(item.estado ?? '')) return 'invalid'
   const total = installmentTotal(item)
   const paid = (item.pagos ?? []).reduce((sum, payment) => sum + Number(payment.monto_abonado), 0)
-  const settled = /^(pagad[oa]|pago|ok)$/i.test(item.estado?.trim() ?? '') || (total !== null && paid >= total)
+  const settled = item.estado === 'Pagada' || (total !== null && paid >= total)
   if (settled) return 'paid'
   if (total === null || !Number.isSafeInteger(paid) || paid < 0) return 'invalid'
-  // The existing RPC charges the whole amount, not the remaining partial balance.
   if (paid > 0) return 'partial'
   return 'pending'
 }

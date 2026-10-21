@@ -15,6 +15,14 @@ type Props = {
   onRefresh: () => void; onBusy: (busy: boolean) => void
 }
 
+function remainingAmount(item: Installment) {
+  const total = installmentTotal(item)
+  if (total === null) return null
+  const paid = (item.pagos ?? []).reduce((sum, payment) => sum + Number(payment.monto_abonado), 0)
+  const remaining = total - paid
+  return Number.isSafeInteger(remaining) && remaining > 0 ? remaining : null
+}
+
 export default function PaymentScreen({ student, canCollect, onBack, onRefresh, onBusy }: Props) {
   const [items, setItems] = useState<Installment[]>([])
   const [selected, setSelected] = useState<number[]>([])
@@ -40,6 +48,7 @@ export default function PaymentScreen({ student, canCollect, onBack, onRefresh, 
     const current = ++request.current
     setLoading(true)
     setLoadFailed(false)
+    setError('')
     try {
       const rows = await readItems()
       if (!mounted.current || current !== request.current) return
@@ -70,11 +79,18 @@ export default function PaymentScreen({ student, canCollect, onBack, onRefresh, 
     }).finally(() => {
       if (mounted.current && current === request.current) setLoading(false)
     })
-    return () => { mounted.current = false; request.current += 1 }
+    const channel = supabase.channel(`student-payments-${student.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pagos' }, () => { void load() })
+      .subscribe()
+    return () => {
+      mounted.current = false
+      request.current += 1
+      void supabase.removeChannel(channel)
+    }
   }, [readItems])
 
   const chosen = items.filter(item => selected.includes(item.id) && paymentState(item) === 'pending')
-  const total = chosen.reduce((sum, item) => sum + (installmentTotal(item) ?? 0), 0)
+  const total = chosen.reduce((sum, item) => sum + (remainingAmount(item) ?? 0), 0)
   const principal = chosen.reduce((sum, item) => sum + Number(item.monto) - Number(item.descuento), 0)
   const surcharge = chosen.reduce((sum, item) => sum + Number(item.recargo), 0)
   const pending = items.filter(item => paymentState(item) === 'pending')
@@ -97,39 +113,50 @@ export default function PaymentScreen({ student, canCollect, onBack, onRefresh, 
     let completed = 0
     let actualAmount = 0
     let failure = ''
+    let selectionWasRefreshed = false
     try {
       const currentItems = await readItems()
       if (!mounted.current) return
       const unchanged = chosen.every(item => {
         const current = currentItems.find(value => value.id === item.id)
-        return current && paymentState(current) === 'pending' && installmentTotal(current) === installmentTotal(item)
+        return current && paymentState(current) === 'pending' && remainingAmount(current) === remainingAmount(item)
       })
       if (!unchanged) {
         setItems(currentItems)
         setSelected([])
         setReviewed(false)
         setError('Las cuotas cambiaron desde la selección. Revisá los importes y seleccioná nuevamente.')
+        selectionWasRefreshed = true
         return
       }
       // Each existing RPC is its own transaction. Stop on the first failure;
       // completed installments remain paid and are never silently retried.
       for (const item of chosen) {
         if (!mounted.current) break
-        const { data, error } = await supabase.rpc('cobrar_cuota', { p_cuota_id: item.id })
+        const expectedAmount = remainingAmount(item)
+        if (expectedAmount === null) {
+          failure = `${installmentLabel(item)} tiene un saldo inválido. Revisá su estado antes de reintentar.`
+          break
+        }
+        const { data, error } = await supabase.rpc('cobrar_cuota_confirmada', {
+          p_cuota_id: item.id, p_monto_esperado: expectedAmount,
+        })
         if (error || !data?.success) {
           failure = data?.code === 'ALREADY_PAID'
             ? `${installmentLabel(item)} ya fue cobrada. Se actualizó el listado.`
-            : `No se pudo confirmar ${installmentLabel(item)}. Revisá su estado antes de reintentar.`
+            : data?.code === 'AMOUNT_CHANGED'
+              ? `El importe de ${installmentLabel(item)} cambió desde la revisión. Revisá el listado antes de volver a confirmar.`
+              : `No se pudo confirmar ${installmentLabel(item)}. Revisá su estado antes de reintentar.`
           break
         }
         completed += 1
-        actualAmount += Number(data.monto_pagado ?? installmentTotal(item))
+        actualAmount += Number(data.monto_pagado ?? expectedAmount)
       }
     } catch {
       failure = 'No se pudo confirmar el cobro. Revisá el estado de las cuotas antes de reintentar.'
     } finally {
       if (mounted.current) {
-        await load()
+        if (!selectionWasRefreshed) await load()
         if (mounted.current) {
           if (completed) {
             setMessage(`${completed} ${completed === 1 ? 'cuota cobrada' : 'cuotas cobradas'}. Total registrado: ${money(actualAmount / 100)}.`)

@@ -1,6 +1,6 @@
 # Administrator-created accounts
 
-Administrators open **Crear cuenta** beside their account in the header and choose
+Administrators open **Cuentas** in the sidebar and choose
 `admin`, `secretaria`, or `tutor`. Each submission creates a login and a matching
 `perfiles` row atomically. Tutors also get a new `tutores` row; staff profiles have
 `tutor_id = NULL` and create no guardian. Courses and existing students are not
@@ -57,15 +57,15 @@ requests omit guardian fields, and unsupported role values are rejected.
 Tutors can only read their own family through existing RLS and dashboard filtering.
 The bulk fee increase now also checks the current staff profile before writing;
 direct calls from tutors and anonymous users fail. Local regression tests verify
-collection amounts and administrative dashboard results against the explicit
-pre-account migration baseline, allowing the intentional canonical state change.
+the unchanged ordinary workflow against the pre-account baseline. Financial
+regressions separately cover the corrected partial balance and sibling rules.
 
-**Known consideration — JWT freshness:** table policies and the dashboard still
-read role and family claims from the issued JWT. Changing a profile does not
-immediately change an already issued token. Some newer privileged operations
-additionally check the current database profile. No authorization rule or token
-lifetime was changed in the supplemental audit fixes. Immediate revocation or
-family reassignment semantics require a separate product/security decision;
+**Known consideration — JWT freshness:** table policies and the dashboard resolve
+the role from the current profile through `current_user_role()`. Removing or demoting
+a profile therefore revokes its role authority without waiting for a token refresh.
+The family association still uses the issued `tutor_id` claim. Reassigning a tutor
+requires an explicit token refresh/revocation policy; token lifetimes were not changed.
+Cancellation of operations already authorized before revocation remains a separate decision;
 see [Supabase's JWT freshness guidance](https://supabase.com/docs/guides/database/postgres/row-level-security#authjwt).
 
 ## Migration order and identities
@@ -82,12 +82,20 @@ Verified local ordering is the filename order in `supabase/migrations/`:
    It replaces the function without rewriting migration 0010 or changing its
    financial calculations. Apply it after the preceding files.
 
-All local migrations use consecutive four-digit prefixes: `0001`, `0002`, and so
-on. New migrations must use the next available number (`0019` after this chain).
-If the CLI generates a timestamped file, rename that new, unapplied local file to
-the next number before sharing it. The migration selection test enforces this
-convention. The three most recent files were renumbered at the user's request
-without changing their SQL bytes.
+6. `20261020190612_account_directory.sql` adds the live-profile role lookup,
+   bounded account directory, and last-administrator deletion guard.
+7. `20261020205312_audit_financial_integrity.sql` centralizes monetary rules,
+   expected-amount collection, sibling discounts and staff student validation.
+
+After the complete migration chain, apply `supabase/patches/support_legacy_installment_states.sql`
+as described in SETUP. It converts known legacy state labels once, then enforces
+only `Pagada`, `Pendiente`, and `Vencida` with a canonical default and classifiers.
+Unknown or null existing labels abort the transaction without partial conversion.
+The SQL patch does not register a CLI migration identity or repair remote history.
+
+Historical migrations keep their existing identities. New files use the Supabase
+CLI timestamp convention (`supabase migration new <name>`) and sort after the existing
+chain. Do not rename an applied migration or introduce a second identity for its SQL.
 
 Do not keep numbered and timestamped copies of the same migration. Filename
 versions identify migrations; identical SQL with a different version is not

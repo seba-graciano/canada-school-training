@@ -11,6 +11,7 @@ import { money } from './payments/installments'
 import './dashboard.css'
 
 const PAGE_SIZE = 50
+const API_BATCH_SIZE = 1000
 const courses: Record<string, string[]> = {
   Inicial: ['Inicial'],
   Primario: ['1º Primaria', '2º Primaria', '3º Primaria', '4º Primaria', '5º Primaria', '6º Primaria'],
@@ -18,11 +19,37 @@ const courses: Record<string, string[]> = {
 }
 const emptyStudent = { nombre: '', apellido: '', dni: '', arancel: '', tutor: '', nivel: 'Primario', curso: '1º Primaria' }
 
+function normalizeStudent(row: Record<string, unknown>): Student {
+  const text = (value: unknown) => typeof value === 'string' ? value : ''
+  const number = (value: unknown) => Number(value ?? 0)
+  return {
+    id: number(row.id), nombre: text(row.nombre), apellido: text(row.apellido), dni: text(row.dni),
+    nivel: text(row.nivel), curso: text(row.curso), hermanos: number(row.hermanos),
+    descuento_hermano: number(row.descuento_hermano), arancel_base: number(row.arancel_base),
+    cuotas_saldadas: number(row.cuotas_saldadas), mora: number(row.mora), deuda: number(row.deuda),
+    tutor_email: text(row.tutor_email),
+  }
+}
+
+async function readAllPages<T>(readPage: (start: number, end: number) => PromiseLike<{ data: T[] | null; error: unknown }>) {
+  const rows: T[] = []
+  let start = 0
+  while (true) {
+    const { data, error } = await readPage(start, start + API_BATCH_SIZE - 1)
+    if (error) throw error
+    const page = data ?? []
+    if (!page.length) return rows
+    rows.push(...page)
+    start += page.length
+  }
+}
+
 export default function AdminDashboard() {
   const { userRole, setFiltro } = useApp()
   const canManage = userRole === 'admin' || userRole === 'secretaria'
   const [alumnos, setAlumnos] = useState<Student[]>([])
   const [tutores, setTutores] = useState<{ id: number; nombre: string; apellido: string }[]>([])
+  const [tutorError, setTutorError] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -73,10 +100,9 @@ export default function AdminDashboard() {
     setLoading(true)
     setError('')
     try {
-      const { data, error } = await supabase.rpc('dashboard_alumnos')
+      const data = await readAllPages((start, end) => supabase.rpc('dashboard_alumnos').range(start, end))
       if (!mounted.current || request !== dashboardRequest.current) return
-      if (error) throw error
-      setAlumnos(data ?? [])
+      setAlumnos(data.map(row => normalizeStudent(row as Record<string, unknown>)))
     } catch (error) {
       if (mounted.current && request === dashboardRequest.current) {
         console.error('Error cargando dashboard:', error)
@@ -88,8 +114,14 @@ export default function AdminDashboard() {
   }
 
   async function cargarTutores() {
-    const { data, error } = await supabase.from('tutores').select('id, nombre, apellido, email')
-    if (mounted.current && !error) setTutores(data ?? [])
+    setTutorError('')
+    try {
+      const data = await readAllPages<{ id: number; nombre: string; apellido: string }>((start, end) => supabase.from('tutores')
+        .select('id, nombre, apellido, email').order('id').range(start, end))
+      if (mounted.current) setTutores(data ?? [])
+    } catch {
+      if (mounted.current) setTutorError('No se pudieron consultar los tutores. Reintentá la consulta.')
+    }
   }
 
   function search(event: FormEvent) {
@@ -102,6 +134,18 @@ export default function AdminDashboard() {
   async function crearAlumno(event: FormEvent) {
     event.preventDefault()
     if (!canManage || createLock.current) return
+    const nombre = form.nombre.trim()
+    const apellido = form.apellido.trim()
+    const dni = form.dni.trim()
+    const arancelText = form.arancel.trim()
+    const arancel = Number(arancelText)
+    const arancelCents = Math.round(arancel * 100)
+    if (!nombre) { setError('Complete el nombre del alumno'); return }
+    if (!apellido) { setError('Complete el apellido del alumno'); return }
+    if (!dni) { setError('Complete el DNI del alumno'); return }
+    if (!arancelText || !Number.isFinite(arancel) || arancel < 0 || !Number.isSafeInteger(arancelCents)) {
+      setError('Ingrese un arancel válido, finito y no negativo'); return
+    }
     if (!form.tutor) { setError('Debe seleccionar un tutor'); return }
     if (!courses[form.nivel]?.includes(form.curso)) { setError('Curso inválido para el nivel seleccionado'); return }
     createLock.current = true
@@ -109,9 +153,9 @@ export default function AdminDashboard() {
     setError('')
     try {
       const { error } = await supabase.from('alumnos').insert({
-        nombre: form.nombre, apellido: form.apellido, dni: form.dni,
+        nombre, apellido, dni,
         nivel: form.nivel, curso: form.curso, tutor_id: Number(form.tutor),
-        arancel_base: Math.round(Number(form.arancel) * 100), activo: true,
+        arancel_base: arancelCents, activo: true,
       }).select().single()
       if (error) throw error
       if (!mounted.current) return
@@ -160,6 +204,7 @@ export default function AdminDashboard() {
       {notice && <div role="status" className="success-message">{notice}</div>}
       {showForm && canManage && <section id="student-form" className="panel panel-padding new-student">
         <div className="panel-header"><h2>Nuevo alumno</h2><button className="btn-link" type="button" disabled={creating} onClick={() => setShowForm(false)}>Cerrar</button></div>
+        {tutorError && <div role="alert" className="error-message">{tutorError}<button type="button" className="btn-link" onClick={() => { void cargarTutores() }}>Reintentar tutores</button></div>}
         <form onSubmit={crearAlumno}><fieldset disabled={creating} className="form-grid">
           {(['nombre', 'apellido', 'dni', 'arancel'] as const).map(key => <label className="field" key={key}>{({ nombre: 'Nombre', apellido: 'Apellido', dni: 'DNI', arancel: 'Arancel' })[key]}<input type={key === 'arancel' ? 'number' : 'text'} step={key === 'arancel' ? '0.01' : undefined} value={form[key]} onChange={event => setForm(previous => ({ ...previous, [key]: event.target.value }))} /></label>)}
           <label className="field">Nivel<select value={form.nivel} onChange={event => setForm(previous => ({ ...previous, nivel: event.target.value, curso: courses[event.target.value][0] }))}>{Object.keys(courses).map(level => <option key={level}>{level}</option>)}</select></label>

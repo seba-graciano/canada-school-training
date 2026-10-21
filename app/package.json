@@ -4,6 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test": "node ../scripts/test.mjs",
+    "test:unit": "node ../scripts/test.mjs --unit",
+    "test:db": "node ../scripts/test.mjs --db",
+    "test:ui": "node ../scripts/test.mjs --ui",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",

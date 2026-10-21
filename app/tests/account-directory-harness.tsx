@@ -33,10 +33,14 @@ const controls = (window as any).accountDirectory = {
   delaySearch: '',
   rpcError: '',
   createdRoles: [] as string[],
+  authHandler: null as null | ((event: string, session: any) => void),
 }
 
 supabase.auth.getSession = async () => ({ data: { session: session as any }, error: null }) as any
-supabase.auth.onAuthStateChange = (() => ({ data: { subscription: { unsubscribe: () => undefined } } })) as any
+supabase.auth.onAuthStateChange = ((handler: (event: string, session: any) => void) => {
+  controls.authHandler = handler
+  return { data: { subscription: { unsubscribe: () => undefined } } }
+}) as any
 supabase.rpc = (async (name: string, args: Record<string, unknown>) => {
   controls.rpcCalls.push({ name, args })
   const search = String(args.p_search ?? '').toLocaleLowerCase()

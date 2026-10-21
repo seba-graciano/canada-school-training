@@ -83,6 +83,8 @@ test('admin and secretary retain dashboard, fee increase and collection behavior
   for (const [id,role] of [[adminId,'admin'],[secretaryId,'secretaria']]) {
     const db = await database()
     try {
+      // This compatibility control has no receipts; partial invoices are tested separately.
+      await db.exec('delete from pagos')
       await asUser(db,id,role)
       assert.equal((await db.query('select * from dashboard_alumnos()')).rows.length,2)
       assert.equal((await db.query('select aumentar_cuotas_pendientes_15() as n')).rows[0].n,2)
@@ -244,6 +246,8 @@ test('staff operations produce the same results and stored amounts as the baseli
     const baseline = await database(true)
     try {
       for (const db of [baseline,candidate]) {
+        // Compare the unchanged ordinary workflow, not the partial-payment bug being fixed.
+        await db.exec('delete from pagos')
         await db.exec("update alumnos set created_at='2026-10-13T00:00:00Z'")
         await asUser(db,id,role)
       }

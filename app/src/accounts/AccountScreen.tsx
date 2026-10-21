@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { FormEvent } from 'react'
 import { useApp } from '../AppContext'
 import { supabase } from '../supabase'
@@ -84,6 +85,7 @@ export default function AccountScreen({ onBack, onCreated }: Props) {
     if (!openMenuId) return
     menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
     const dismiss = (event: PointerEvent) => {
+      if ((event.target as Element | null)?.closest('.account-menu-trigger')) return
       if (!menuRef.current?.contains(event.target as Node)) setOpenMenuId(null)
     }
     const keydown = (event: KeyboardEvent) => {
@@ -102,7 +104,8 @@ export default function AccountScreen({ onBack, onCreated }: Props) {
 
   useEffect(() => {
     if (!deleteTarget) return
-    cancelDeleteRef.current?.focus()
+    if (deleteLoading) confirmationRef.current?.focus()
+    else cancelDeleteRef.current?.focus()
     const keydown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !deleting.current) {
         setDeleteTarget(null)
@@ -111,7 +114,11 @@ export default function AccountScreen({ onBack, onCreated }: Props) {
       }
       if (event.key !== 'Tab') return
       const focusable = confirmationRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled)')
-      if (!focusable?.length) return
+      if (!focusable?.length) {
+        event.preventDefault()
+        confirmationRef.current?.focus()
+        return
+      }
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
@@ -119,7 +126,7 @@ export default function AccountScreen({ onBack, onCreated }: Props) {
     }
     document.addEventListener('keydown', keydown)
     return () => document.removeEventListener('keydown', keydown)
-  }, [deleteTarget])
+  }, [deleteTarget, deleteLoading])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -191,7 +198,9 @@ export default function AccountScreen({ onBack, onCreated }: Props) {
   }
 
   return (
-    <AppShell active="accounts" onStudents={() => { if (!loading) onBack() }}>
+    <>
+      <div className="account-app-background" inert={Boolean(deleteTarget)}>
+        <AppShell active="accounts" onStudents={() => { if (!loading) onBack() }}>
       <div className="account-screen">
         <div className="page-heading account-heading">
           <div>
@@ -336,10 +345,13 @@ export default function AccountScreen({ onBack, onCreated }: Props) {
             </div>
           </section>
         </div>
-        {deleteTarget && <div className="account-confirmation-backdrop" onMouseDown={event => {
+      </div>
+      </AppShell>
+      </div>
+      {deleteTarget && createPortal(<div className="account-confirmation-backdrop" onMouseDown={event => {
           if (event.target === event.currentTarget && !deleting.current) { setDeleteTarget(null); setDeleteError('') }
         }}>
-          <section className="account-confirmation" role="alertdialog" aria-modal="true"
+          <section className="account-confirmation" role="alertdialog" aria-modal="true" tabIndex={-1}
             aria-labelledby="account-delete-title" aria-describedby="account-delete-description" ref={confirmationRef}>
             <h2 id="account-delete-title">¿Eliminar la cuenta?</h2>
             <p id="account-delete-description">Se eliminará esta cuenta registrada:</p>
@@ -353,8 +365,7 @@ export default function AccountScreen({ onBack, onCreated }: Props) {
               </button>
             </div>
           </section>
-        </div>}
-      </div>
-    </AppShell>
+        </div>, document.body)}
+    </>
   )
 }

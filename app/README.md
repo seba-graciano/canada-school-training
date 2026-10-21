@@ -19,7 +19,9 @@ npm run dev
 > Si el server no levanta por `HTTP 431 (request header fields too large)`, arrancá con:
 > `NODE_OPTIONS=--max-http-header-size=65536 npm run dev`
 
-Login de prueba: el formulario viene precargado, sólo hacé clic en **Ingresar**.
+El formulario de acceso comienza vacío. Use una cuenta del proyecto autorizado;
+el seed no crea identidades Auth. Las correcciones actuales y sus pruebas se
+describen en [la guía de auditoría](../docs/audit-findings.md).
 
 ## Qué se espera de vos
 

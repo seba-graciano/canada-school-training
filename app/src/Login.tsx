@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from './supabase'
+import { decodeJwtPayload } from './auth/session'
 import Brand from './ui/Brand'
 import './login.css'
 
@@ -35,11 +36,11 @@ export default function Login({ onLogin }: LoginProps) {
       if (!session) throw new Error('No session after login')
 
       // Decode JWT to get custom claims (user_role, tutor_id)
-      const payload = JSON.parse(atob(session.access_token.split('.')[1]))
-      const userRole = payload.user_role
-      const tutorId = payload.tutor_id
+      const payload = decodeJwtPayload(session.access_token)
+      const userRole = payload?.user_role
+      const tutorId = payload?.tutor_id
 
-      if (!userRole) {
+      if (typeof userRole !== 'string' || !['admin', 'secretaria', 'tutor'].includes(userRole)) {
         await supabase.auth.signOut()
         throw new Error('Usuario sin rol asignado. Contacte al administrador.')
       }

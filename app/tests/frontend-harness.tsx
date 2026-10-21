@@ -15,7 +15,11 @@ controls.completed = []
 supabase.rpc = ((...args: Parameters<typeof supabase.rpc>) => {
   const index = controls.completed.length
   controls.completed.push(false)
-  return Promise.resolve(rpc(...args)).finally(() => { controls.completed[index] = true })
+  const query = rpc(...args) as any
+  const then = query.then.bind(query)
+  query.then = (onfulfilled: unknown, onrejected: unknown) => then(onfulfilled, onrejected)
+    .finally(() => { controls.completed[index] = true })
+  return query
 }) as typeof supabase.rpc
 supabase.channel = (() => {
   const channel = {
