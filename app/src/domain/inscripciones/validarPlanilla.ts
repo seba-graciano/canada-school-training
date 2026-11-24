@@ -134,12 +134,14 @@ export function validarPlanilla(filas: readonly FilaCruda[], catalogo: readonly 
     return { fila: a.fila, estado, errores, avisos: a.vacia ? [] : a.avisos, importable }
   })
 
-  const contar = (estado: EstadoFila) => resultado.filter(r => r.estado === estado).length
-  return {
-    filas: resultado,
-    resumen: { validas: contar('valida'), validasConAviso: contar('validaConAviso'), conError: contar('conError'),
-      ignoradas: contar('ignorada'), total: resultado.length },
-  }
+  return { filas: resultado, resumen: resumirFilas(resultado) }
+}
+
+/** Preview summary: how many rows are in each state. */
+export function resumirFilas(filas: readonly ResultadoFila[]): ResumenPlanilla {
+  const contar = (estado: EstadoFila) => filas.filter(r => r.estado === estado).length
+  return { validas: contar('valida'), validasConAviso: contar('validaConAviso'), conError: contar('conError'),
+    ignoradas: contar('ignorada'), total: filas.length }
 }
 
 /** The rows to send to importar_inscripciones, in sheet order. */
