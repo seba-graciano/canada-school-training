@@ -35,7 +35,7 @@ Sources: FUN-2026-0147 (rules R-xx, messages, acceptance table; prevails over TE
 - T6 | S19 | inline | done locally | 20261124120300_inscripciones_alta_tutor_existente.sql. Links the guardian with the same DNI (ON CONFLICT), only fills a missing email; invalid DNI → "Invalid account data". Full DB suite 48/48, unit 104/104. Risk item 2.
 - T7 | S11 | inline | done locally | 20261124120400_inscripciones_registro_importaciones.sql (usuario_id + usuario_email snapshot, SHA-256 hex check, counters ≥ 0, admin-only SELECT, no write grants). RED 3/3 → GREEN; full DB suite 51/51. Risk item 2.
 - T8 | S6–S11,S14,S18 | inline | done locally, verification pending | 20261124120600_inscripciones_rpc_importar.sql + supabase/tests/inscripciones-rpc.test.mjs. RED 9/9 → GREEN 9/9; DB 62/62, unit 104/104. Risk item 2.
-- T9 | S20 | user | pending | ADR Excel library (user writes it; AI may gather data only).
+- T9 | S20 | inline | done (draft for the team to restate) | docs/adr/001-libreria-excel.md: exceljs 4.4.0 pinned; npm audit shows only the 2 documented moderate uuid findings (unreachable). Risk item 5 (dependency).
 - T10 | S4,S5,S7,S10,S13,S14,S17 | inline | done | app/src/domain/inscripciones/{mensajes,celdas,dinero,validarPlanilla}.ts + 3 test files. RED (modules missing) → GREEN 16/16; the FUN §10 table passes verbatim row by row with summary 11/1/17/1/30. Unit 120/120, tsc and oxlint clean. Acceptance tests written by the AI at the user's request (L18); TEC §10 asks the team to own them.
 - T11 | S10,S13,S17 | inline | pending | Reader adapter + fixture integration test.
 - T12 | S3,S16 | inline | pending | Base writer: template + error report.
