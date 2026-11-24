@@ -15,7 +15,7 @@ test('the template has an Inscripciones sheet with the FUN columns and an Instru
   const [inscripciones, instrucciones] = libro.hojas
   assert.deepEqual(inscripciones.columnas.map(c => c.titulo), [...COLUMNAS])
   assert.deepEqual(inscripciones.filas, [])
-  assert.equal(inscripciones.filasConListas, 2000)
+  assert.equal(inscripciones.filasConListas, 1999)
   assert.deepEqual(instrucciones.columnas.map(c => c.titulo), ['Columna', 'Obligatoria', 'Ejemplo', 'Regla'])
   assert.deepEqual(instrucciones.filas[0], ['DNI alumno', 'Sí', '45111222', '7 u 8 dígitos. Se aceptan puntos y espacios, que se quitan.'])
   assert.deepEqual(instrucciones.filas[10], ['Teléfono tutor', 'No', '+54 9 11 5555-1234', 'Texto libre. Puede empezar con +.'])

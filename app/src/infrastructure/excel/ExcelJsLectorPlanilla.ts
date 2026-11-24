@@ -5,7 +5,8 @@ import type { Celda } from '../../domain/inscripciones/celdas.ts'
 import { COLUMNAS, COLUMNAS_OBLIGATORIAS, type Columna, type FilaCruda } from '../../domain/inscripciones/validarPlanilla.ts'
 
 const MAXIMO_BYTES = 2 * 1024 * 1024
-const MAXIMO_FILAS = 2000
+// Client P7: 2.000 rows in total, header included, so at most 1.999 data rows.
+const MAXIMO_FILAS = 1999
 const HOJA = 'Inscripciones'
 
 const plegar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/\s+/g, ' ').trim().toLowerCase()

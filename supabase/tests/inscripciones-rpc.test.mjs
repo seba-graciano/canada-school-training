@@ -148,7 +148,7 @@ test('a tutor gets SIN_PERMISO, anonymous callers cannot execute it, and nothing
   } finally { await db.close() }
 })
 
-test('importing existing students updates them and never touches cuotas or pagos', async () => {
+test('importing existing students updates and reactivates them and never touches cuotas or pagos', async () => {
   const db = await database()
   try {
     await db.exec(`insert into tutores(nombre,apellido,dni,email,telefono) values ('Carlos','Gomez','23456789','old@example.test','1100000000');
@@ -162,7 +162,7 @@ test('importing existing students updates them and never touches cuotas or pagos
     assert.deepEqual(result.resumen, { alumnosCreados: 0, alumnosActualizados: 1, tutoresCreados: 0, tutoresActualizados: 1 })
     await db.exec('reset role')
     assert.deepEqual((await db.query('select nombre,apellido,curso,arancel_base,tutor_id,activo from alumnos')).rows,
-      [{ nombre: 'Sofía', apellido: 'Gómez', curso: '3º Primaria', arancel_base: 18500000, tutor_id: 2, activo: false }])
+      [{ nombre: 'Sofía', apellido: 'Gómez', curso: '3º Primaria', arancel_base: 18500000, tutor_id: 2, activo: true }])
     assert.deepEqual((await db.query('select apellido,email,telefono from tutores where id=2')).rows,
       [{ apellido: 'Gómez', email: 'cgomez@gmail.com', telefono: '+54 9 11 5555-1234' }])
     assert.deepEqual(await snapshot(db, ['cuotas', 'pagos']), before)
@@ -240,13 +240,13 @@ test('one invalid row rejects the whole payload and lists every error with the e
   } finally { await db.close() }
 })
 
-test('payloads without rows or above 2.000 rows are rejected as a whole', async () => {
+test('payloads without rows or with 2.000 data rows (2.000 sheet rows with the header) are rejected', async () => {
   const db = await database()
   try {
     await as(db, adminId, 'admin')
     assert.deepEqual((await importar(db, payload([]), true)).errores,
       [{ fila: null, codigo: 'F05', mensaje: 'El archivo no tiene filas para importar.' }])
-    const many = Array.from({ length: 2001 }, (_, i) =>
+    const many = Array.from({ length: 2000 }, (_, i) =>
       fila(i + 2, String(40000000 + i), 'N', 'A', 'Inicial', 'Inicial', 100, tutor(String(30000000 + i), 'T', 'U')))
     const result = await importar(db, payload(many), true)
     assert.equal(result.code, 'FILAS_INVALIDAS')
@@ -306,5 +306,41 @@ test('row numbers must be unique as numbers and huge fees are a row error, not a
     const result = await importar(db, payload([enorme]), true)
     assert.equal(result.code, 'FILAS_INVALIDAS')
     assert.equal(result.errores[0].codigo, 'E09')
+  } finally { await db.close() }
+})
+
+test('guardian names that differ only in case are the same data; the capitalized form is stored', async () => {
+  const db = await database()
+  try {
+    await as(db, adminId, 'admin')
+    const result = await importar(db, payload([
+      fila(2, '45111222', 'Sofía', 'Gómez', 'Inicial', 'Inicial', 100, tutor('23456789', 'martín', 'gómez', 'm@g.com')),
+      fila(3, '45111223', 'Tomás', 'Gómez', 'Inicial', 'Inicial', 100, tutor('23456789', 'Martín', 'Gómez', 'M@G.com')),
+    ]), false)
+    assert.equal(result.code, 'IMPORTADO')
+    await db.exec('reset role')
+    assert.deepEqual((await db.query("select nombre,apellido,email from tutores where dni='23456789'")).rows,
+      [{ nombre: 'Martín', apellido: 'Gómez', email: 'm@g.com' }])
+    // Different letters (FUN row 22: Pérez vs Peres) are still E15.
+    await as(db, adminId, 'admin')
+    const otra = await importar(db, payload([
+      fila(2, '45111224', 'A', 'B', 'Inicial', 'Inicial', 100, tutor('30111222', 'Laura', 'Pérez')),
+      fila(3, '45111225', 'C', 'D', 'Inicial', 'Inicial', 100, tutor('30111222', 'Laura', 'Peres')),
+    ]), true)
+    assert.deepEqual(otra.errores.map(e => e.codigo), ['E15', 'E15'])
+  } finally { await db.close() }
+})
+
+test('a guardian email given on only one sibling row is used for the guardian', async () => {
+  const db = await database()
+  try {
+    await as(db, adminId, 'admin')
+    const result = await importar(db, payload([
+      fila(2, '45111222', 'Sofía', 'Gómez', 'Inicial', 'Inicial', 100, tutor('23456789', 'Carlos', 'Gómez', null)),
+      fila(3, '45111223', 'Tomás', 'Gómez', 'Inicial', 'Inicial', 100, tutor('23456789', 'Carlos', 'Gómez', 'c@g.com')),
+    ]), false)
+    assert.equal(result.code, 'IMPORTADO')
+    await db.exec('reset role')
+    assert.equal((await db.query("select email from tutores where dni='23456789'")).rows[0].email, 'c@g.com')
   } finally { await db.close() }
 })

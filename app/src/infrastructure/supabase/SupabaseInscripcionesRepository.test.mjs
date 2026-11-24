@@ -53,3 +53,16 @@ test('network errors and malformed answers reject with a safe message', async ()
   await assert.rejects(new SupabaseInscripcionesRepository(cliente({ cursos: { data: null, error: new Error('x') } })).cursos(),
     { message: ERROR_CONEXION })
 })
+
+test('reads the import log newest first and maps it (client P2)', async () => {
+  let pedido
+  const fila = { id: 3, fecha: '2026-11-24T18:04:00Z', usuario_email: 'a@b.c', nombre_archivo: 'x.xlsx',
+    alumnos_creados: 2, alumnos_actualizados: 1, tutores_creados: 1, tutores_actualizados: 0 }
+  const fake = { from: tabla => ({ select: columnas => ({ order: async (columna, opciones) => {
+    pedido = [tabla, columnas, columna, opciones]; return { data: [fila], error: null } } }) }) }
+  assert.deepEqual(await new SupabaseInscripcionesRepository(fake).historial(), [{ id: 3, fecha: '2026-11-24T18:04:00Z', usuario: 'a@b.c',
+    nombreArchivo: 'x.xlsx', alumnosCreados: 2, alumnosActualizados: 1, tutoresCreados: 1, tutoresActualizados: 0 }])
+  assert.deepEqual(pedido.slice(2), ['fecha', { ascending: false }])
+  const roto = { from: () => ({ select: () => ({ order: async () => ({ data: null, error: new Error('x') }) }) }) }
+  await assert.rejects(new SupabaseInscripcionesRepository(roto).historial(), { message: ERROR_CONEXION })
+})

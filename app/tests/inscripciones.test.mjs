@@ -66,7 +66,7 @@ function fakeBackend() {
     })
     if (!simular) {
       for (const fila of payload.filas) { state.alumnos.set(fila.alumno.dni, fila.tutor.dni); state.tutores.add(fila.tutor.dni) }
-      state.importaciones.push({ hash: payload.hashArchivo, fecha: '2026-11-24T18:04:00Z', usuario: 'admin@example.invalid' })
+      state.importaciones.push({ hash: payload.hashArchivo, fecha: '2026-11-24T18:04:00Z', usuario: 'admin@example.invalid', resumen })
     }
     return { success: true, code: simular ? 'SIMULADO' : 'IMPORTADO', importacionPrevia: previa && { fecha: previa.fecha, usuario: previa.usuario },
       filas, errores: [], resumen }
@@ -95,6 +95,9 @@ async function open(t, { role = 'admin', backend = fakeBackend() } = {}) {
     const json = (body, status = 200, extra = {}) => route.fulfill({ status, headers: { ...headers, ...extra }, body: JSON.stringify(body) })
     if (url.pathname === '/rest/v1/rpc/dashboard_alumnos' || url.pathname === '/rest/v1/tutores') return json([], 200, { 'content-range': '*/0' })
     if (url.pathname === '/rest/v1/cursos') return json(CURSOS)
+    if (url.pathname === '/rest/v1/importaciones') return json(backend.importaciones.map((i, n) => ({ id: n + 1, fecha: i.fecha,
+      usuario_email: i.usuario, nombre_archivo: 'inscripciones-2027.xlsx', alumnos_creados: i.resumen.alumnosCreados,
+      alumnos_actualizados: i.resumen.alumnosActualizados, tutores_creados: i.resumen.tutoresCreados, tutores_actualizados: i.resumen.tutoresActualizados })).reverse())
     if (url.pathname === '/rest/v1/rpc/importar_inscripciones') return json(backend.importar(route.request().postDataJSON()))
     return json({})
   })
@@ -141,7 +144,7 @@ test('FUN section 10: preview, error report, corrected import, re-import and rol
   await page.getByText('E10: El arancel "185000.555" tiene más de dos decimales.').waitFor()
   await page.getByText('A01: El tutor no tiene email: no va a poder recibir avisos por correo.').waitFor()
   await page.getByLabel('Solo filas con error').check()
-  assert.equal(await page.locator('.inscripciones-tabla tbody tr').count(), 17)
+  assert.equal(await page.locator('.inscripciones-preview .inscripciones-tabla tbody tr').count(), 17)
 
   // 2. The error report has 17 rows with "Fila original" and "Errores" first.
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Descargar reporte de errores' }).click()])
@@ -170,6 +173,11 @@ test('FUN section 10: preview, error report, corrected import, re-import and rol
   await page.getByRole('button', { name: 'Confirmar importación' }).click()
   await page.getByText(/Importación confirmada: 0 alumnos creados y 29 actualizados; 0 tutores creados y 24 actualizados\./).waitFor()
   assert.equal(backend.alumnos.size, 29)
+  // Client P2: the administrator sees both confirmed imports in the history.
+  await page.getByRole('heading', { name: 'Historial de importaciones' }).waitFor()
+  await page.getByRole('button', { name: 'Actualizar' }).click()
+  await page.locator('.inscripciones-historial tbody tr').nth(1).waitFor()
+  assert.equal(await page.locator('.inscripciones-historial tbody tr').count(), 2)
   assert.deepEqual(backend.calls.map(c => c.simular), [true, true, false, true, false])
 })
 
@@ -178,6 +186,7 @@ test('the template downloads with both sheets and drop-downs for Nivel and Curso
   await page.getByRole('button', { name: 'Inscripciones', exact: true }).click()
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Descargar plantilla' }).click()])
   assert.equal(download.suggestedFilename(), 'plantilla-inscripciones-2027.xlsx')
+  assert.equal(await page.getByRole('heading', { name: 'Historial de importaciones' }).count(), 0)
   const libro = new ExcelJS.Workbook()
   await libro.xlsx.readFile(await download.path())
   assert.deepEqual(libro.worksheets.map(h => h.name), ['Inscripciones', 'Instrucciones'])

@@ -35,3 +35,4 @@
   .inscripciones-botones { width: 100%; }
   .inscripciones-botones .btn { flex: 1 1 auto; }
 }
+.inscripciones-historial-error { margin: 0 20px 16px; }

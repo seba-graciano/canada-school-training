@@ -120,3 +120,24 @@ test('E11 lists every repeated row and E14 needs both guardian names', () => {
   ])
   assert.deepEqual(resultado[3].errores.map(m => m.codigo), ['E14', 'E15'])
 })
+
+const hermano = (n, dni, tutorExtra = {}) => ({ fila: n, celdas: { 'DNI alumno': dni, 'Nombre alumno': 'A', 'Apellido alumno': 'B',
+  Nivel: 'Inicial', Curso: 'Inicial', 'Arancel mensual': 1, 'DNI tutor': '23456789', 'Nombre tutor': 'Martín',
+  'Apellido tutor': 'Gómez', 'Email tutor': 'm@g.com', ...tutorExtra } })
+
+test('guardian names that differ only in case are the same data and the capitalized form is used (client P4)', () => {
+  const resultado = validarPlanilla([hermano(2, '40111222', { 'Nombre tutor': 'martín', 'Apellido tutor': 'gómez' }), hermano(3, '40111223')], CATALOGO)
+  assert.deepEqual(resultado.resumen.conError, 0)
+  assert.deepEqual(filasImportables(resultado).map(f => [f.tutor.nombre, f.tutor.apellido]), [['Martín', 'Gómez'], ['Martín', 'Gómez']])
+})
+
+test('a guardian email on one sibling row is used for every row and removes the A01 warning (client P5)', () => {
+  const resultado = validarPlanilla([hermano(2, '40111222', { 'Email tutor': '' }), hermano(3, '40111223')], CATALOGO)
+  assert.deepEqual(resultado.filas.map(f => f.estado), ['valida', 'valida'])
+  assert.deepEqual(filasImportables(resultado).map(f => f.tutor.email), ['m@g.com', 'm@g.com'])
+})
+
+test('two different non-blank emails for one guardian are still E15', () => {
+  const resultado = validarPlanilla([hermano(2, '40111222', { 'Email tutor': 'otro@g.com' }), hermano(3, '40111223')], CATALOGO)
+  assert.deepEqual(resultado.filas.map(f => f.errores.map(e => e.codigo)), [['E15'], ['E15']])
+})

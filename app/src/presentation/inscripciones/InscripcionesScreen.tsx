@@ -1,14 +1,16 @@
 // Container: owns the screen state and runs the use cases. Rendering lives in VistaPrevia.
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { confirmarImportacion, previsualizarImportacion, type VistaPrevia as Vista } from '../../application/inscripciones/importacion.ts'
 import { armarPlantilla, armarReporteErrores, NOMBRE_PLANTILLA, nombreReporteErrores } from '../../application/inscripciones/libros.ts'
-import type { ResumenImportacion } from '../../application/ports/InscripcionesRepository.ts'
+import type { RegistroImportacion, ResumenImportacion } from '../../application/ports/InscripcionesRepository.ts'
+import { useApp } from '../../AppContext'
 import type { CodigoArchivo } from '../../domain/inscripciones/mensajes.ts'
 import AppShell from '../../ui/AppShell'
 import DesignIcon from '../../ui/DesignIcon'
 import { crearDependencias, type DependenciasInscripciones } from './dependencias.ts'
 import VistaPrevia from './VistaPrevia'
+import Historial from './Historial'
 import './inscripciones.css'
 
 // Explicit states instead of loose booleans: impossible combinations cannot be represented.
@@ -44,6 +46,25 @@ export default function InscripcionesScreen({ onStudents, onAccounts, onImported
   const [descarga, setDescarga] = useState<'plantilla' | 'reporte' | null>(null)
   const [errorDescarga, setErrorDescarga] = useState('')
   const input = useRef<HTMLInputElement>(null)
+  const { userRole } = useApp()
+  const esAdmin = userRole === 'admin'
+  const [historial, setHistorial] = useState<RegistroImportacion[] | null>(null)
+  const [errorHistorial, setErrorHistorial] = useState('')
+  const [cargandoHistorial, setCargandoHistorial] = useState(esAdmin)
+
+  // Client P2: only administrators see the import log; the database RLS enforces the same rule.
+  const cargarHistorial = useCallback(async () => {
+    if (!esAdmin) return
+    try {
+      setHistorial(await deps.repositorio.historial())
+      setErrorHistorial('')
+    } catch (error) {
+      setErrorHistorial(error instanceof Error ? error.message : 'No se pudo cargar el historial.')
+    } finally {
+      setCargandoHistorial(false)
+    }
+  }, [deps, esAdmin])
+  useEffect(() => { void cargarHistorial() }, [cargarHistorial])
   const ocupado = estado.tipo === 'leyendo' || estado.tipo === 'confirmando'
 
   async function subir(event: ChangeEvent<HTMLInputElement>) {
@@ -60,7 +81,7 @@ export default function InscripcionesScreen({ onStudents, onAccounts, onImported
     setEstado({ tipo: 'confirmando', vista: estado.vista })
     const resultado = await confirmarImportacion(estado.vista, deps)
     setEstado(resultado)
-    if (resultado.tipo === 'importado') onImported?.()
+    if (resultado.tipo === 'importado') { onImported?.(); void cargarHistorial() }
   }
 
   async function generar(tipo: 'plantilla' | 'reporte') {
@@ -112,6 +133,7 @@ export default function InscripcionesScreen({ onStudents, onAccounts, onImported
       {vista && <VistaPrevia vista={vista} soloErrores={soloErrores} confirmando={estado.tipo === 'confirmando'}
         descargandoReporte={descarga === 'reporte'} onSoloErrores={setSoloErrores} onConfirmar={() => { void confirmar() }}
         onDescargarReporte={() => { void generar('reporte') }} onSubirOtra={reiniciar} />}
+      {esAdmin && <Historial registros={historial} error={errorHistorial} cargando={cargandoHistorial} onActualizar={() => { setCargandoHistorial(true); void cargarHistorial() }} />}
     </div>
   </AppShell>
 }
