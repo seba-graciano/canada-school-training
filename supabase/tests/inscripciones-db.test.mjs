@@ -3,11 +3,12 @@ import { readFile, readdir } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import test from 'node:test'
 
-// Inscripciones 2027 data foundations (odd/tasks/inscripciones-2027.md, T3-T5).
+// Inscripciones 2027 data foundations (odd/tasks/inscripciones-2027.md, T3-T6).
 const { PGlite } = await import(pathToFileURL(process.env.PGLITE_MODULE).href)
 const migrations = new URL('../migrations/', import.meta.url)
 const FEATURE_PREFIX = '20261124'
 const adminId = '00000000-0000-4000-8000-000000000001'
+const accountId = '00000000-0000-4000-8000-000000000009'
 
 const OFFICIAL_COURSES = [
   ['Inicial', 'Inicial'],
@@ -44,6 +45,12 @@ async function asAdmin(db) {
   await db.exec('reset role')
   await db.query("select set_config('request.jwt.claims',$1,false)", [JSON.stringify({ sub: adminId, user_role: 'admin' })])
   await db.exec('set role authenticated')
+}
+
+async function provisionTutor(db, dni) {
+  return db.query('insert into auth.users(id,email,raw_app_meta_data,raw_user_meta_data) values ($1,$2,$3,$4)',
+    [accountId, 'Family@Example.test', { provision_account_by: adminId, provision_account_role: 'tutor' },
+      { nombre: 'Laura', apellido: 'Pérez', dni, telefono: '1144445555' }])
 }
 
 const legacyFamily = async db => {
@@ -141,5 +148,47 @@ test('staff student creation strips dots and spaces from the DNI and rejects inv
     await assert.rejects(db.query(`insert into alumnos(nombre,apellido,dni,nivel,curso,tutor_id,arancel_base)
       values ('Bad','Dni','abc','Inicial','Inicial',1,1)`),
     error => error.code === '22023' && error.message === 'El DNI debe tener 7 u 8 dígitos')
+  } finally { await db.close() }
+})
+
+test('creating the account of an imported guardian links the existing row instead of duplicating it', async () => {
+  const db = await database(async db => {
+    await db.exec("insert into tutores(nombre,apellido,dni,email) values ('Laura','Pérez','30111222',null)")
+  })
+  try {
+    await provisionTutor(db, '30.111.222')
+    const tutors = (await db.query('select id,dni,email from tutores order by id')).rows
+    assert.deepEqual(tutors, [{ id: 1, dni: '30111222', email: 'family@example.test' }])
+    const profile = (await db.query('select user_role,tutor_id from perfiles where id=$1', [accountId])).rows[0]
+    assert.deepEqual(profile, { user_role: 'tutor', tutor_id: 1 })
+  } finally { await db.close() }
+})
+
+test('linking keeps an imported guardian email that already exists', async () => {
+  const db = await database(async db => {
+    await db.exec("insert into tutores(nombre,apellido,dni,email) values ('Laura','Pérez','30111222','laura@school.test')")
+  })
+  try {
+    await provisionTutor(db, '30111222')
+    assert.equal((await db.query('select email from tutores')).rows[0].email, 'laura@school.test')
+  } finally { await db.close() }
+})
+
+test('creating the account of a new guardian still inserts a normalized guardian row', async () => {
+  const db = await database()
+  try {
+    await provisionTutor(db, '30 111 222')
+    const tutors = (await db.query('select dni,email from tutores')).rows
+    assert.deepEqual(tutors, [{ dni: '30111222', email: 'family@example.test' }])
+  } finally { await db.close() }
+})
+
+test('guardian accounts with an invalid DNI are rejected without partial rows', async () => {
+  const db = await database()
+  try {
+    await assert.rejects(provisionTutor(db, '11111111111'),
+      error => error.code === '22023' && error.message === 'Invalid account data')
+    assert.equal((await db.query('select count(*)::int as n from tutores')).rows[0].n, 0)
+    assert.equal((await db.query('select count(*)::int as n from perfiles where id=$1', [accountId])).rows[0].n, 0)
   } finally { await db.close() }
 })
