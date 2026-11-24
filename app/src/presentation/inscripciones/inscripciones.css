@@ -1,0 +1,37 @@
+.inscripciones-screen { display: flex; flex-direction: column; gap: 20px; }
+.inscripciones-botones { display: flex; flex-wrap: wrap; gap: 10px; }
+.inscripciones-vacio { padding: 20px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.inscripciones-preview { display: flex; flex-direction: column; }
+.inscripciones-preview .panel-header small { display: block; margin-top: 4px; }
+.inscripciones-aviso { margin: 0 20px 16px; padding: 12px 14px; border: 1px solid #f0d58a; border-radius: 8px; background: #fff8e6; color: #7a5600; font-size: 14px; line-height: 1.5; }
+.inscripciones-resumen { margin: 0 20px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.inscripciones-tarjeta { padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; }
+.inscripciones-tarjeta dt { color: var(--muted); font-size: 12px; }
+.inscripciones-tarjeta dd { margin: 4px 0 0; font-size: 22px; font-weight: 700; }
+.inscripciones-tarjeta.ok dd { color: #23704d; }
+.inscripciones-tarjeta.aviso dd { color: #9a6b00; }
+.inscripciones-tarjeta.error dd { color: var(--accent); }
+.inscripciones-simulacion, .inscripciones-nota { margin: 14px 20px 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.inscripciones-acciones { margin: 16px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.inscripciones-filtro { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; min-height: 44px; }
+.inscripciones-tabla { overflow-x: auto; border-top: 1px solid var(--line); }
+.inscripciones-tabla table { min-width: 860px; }
+.inscripciones-tabla td { padding: 12px 14px; border-top: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+.inscripciones-tabla th:first-child { width: 6%; }
+.inscripciones-tabla th:nth-child(2) { width: 12%; }
+.inscripciones-tabla th:nth-child(3), .inscripciones-tabla th:nth-child(5) { width: 17%; }
+.inscripciones-tabla th:nth-child(4) { width: 13%; }
+.inscripciones-tabla th:nth-child(6) { width: 35%; }
+.inscripciones-tabla td small { display: block; color: var(--muted); margin-top: 2px; }
+.inscripciones-resultado { display: flex; flex-direction: column; gap: 4px; }
+.inscripciones-mensaje { color: #98172e; }
+.estado-validaConAviso .inscripciones-mensaje { color: #7a5600; }
+.inscripciones-accion { color: var(--muted); }
+.inscripciones-estado.valida { background: #ebf5ef; color: #23704d; }
+.inscripciones-estado.validaConAviso { background: #fff8e6; color: #7a5600; }
+.inscripciones-estado.conError { background: var(--accent-soft); color: var(--accent); }
+@media (max-width: 760px) {
+  .inscripciones-resumen { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inscripciones-botones { width: 100%; }
+  .inscripciones-botones .btn { flex: 1 1 auto; }
+}

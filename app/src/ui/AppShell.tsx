@@ -4,14 +4,17 @@ import Brand from './Brand'
 import DesignIcon from './DesignIcon'
 
 type Props = {
-  active: 'students' | 'accounts'
+  active: 'students' | 'accounts' | 'inscripciones'
   section?: string
   onStudents: () => void
   onAccounts?: () => void
+  onInscripciones?: () => void
   children: ReactNode
 }
 
-export default function AppShell({ active, section, onStudents, onAccounts, children }: Props) {
+const titles = { students: 'Alumnos', accounts: 'Cuentas de acceso', inscripciones: 'Inscripciones' } as const
+
+export default function AppShell({ active, section, onStudents, onAccounts, onInscripciones, children }: Props) {
   const { user, userRole, logout } = useApp()
   const role = userRole === 'admin' ? 'Administrador' : userRole === 'secretaria' ? 'Secretaría' : 'Tutor'
   return <div className="app-shell">
@@ -23,6 +26,9 @@ export default function AppShell({ active, section, onStudents, onAccounts, chil
         <button type="button" className={active === 'students' ? 'nav-item active' : 'nav-item'} aria-current={active === 'students' ? 'page' : undefined} onClick={onStudents}>
           <DesignIcon name={active === 'students' ? 'users' : 'usersInactive'} /><span>Alumnos</span>
         </button>
+        {(userRole === 'admin' || userRole === 'secretaria') && onInscripciones && <button type="button" className={active === 'inscripciones' ? 'nav-item active' : 'nav-item'} aria-current={active === 'inscripciones' ? 'page' : undefined} onClick={onInscripciones}>
+          <DesignIcon name={active === 'inscripciones' ? 'users' : 'usersInactive'} /><span>Inscripciones</span>
+        </button>}
         {userRole === 'admin' && <button type="button" className={active === 'accounts' ? 'nav-item active' : 'nav-item'} aria-current={active === 'accounts' ? 'page' : undefined} onClick={onAccounts}>
           <DesignIcon name={active === 'accounts' ? 'shieldActive' : 'shield'} /><span>Cuentas de acceso</span>
         </button>}
@@ -31,7 +37,7 @@ export default function AppShell({ active, section, onStudents, onAccounts, chil
     <div className="workspace">
       <header className="session-bar">
         <div className="mobile-brand"><Brand /></div>
-        <div className="breadcrumbs"><span>{userRole === 'tutor' ? 'Mi familia' : 'Administración'}</span><DesignIcon name="breadcrumb" /><strong>{section ?? (active === 'accounts' ? 'Cuentas de acceso' : 'Alumnos')}</strong></div>
+        <div className="breadcrumbs"><span>{userRole === 'tutor' ? 'Mi familia' : 'Administración'}</span><DesignIcon name="breadcrumb" /><strong>{section ?? titles[active]}</strong></div>
         <div className="session-user"><span className="badge">{role}</span><span className="session-email">{user?.email}</span>
           <button type="button" className="icon-button" onClick={logout} aria-label="Salir" title="Cerrar sesión"><DesignIcon name="logout" /></button>
         </div>
