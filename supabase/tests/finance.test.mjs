@@ -242,9 +242,10 @@ test('AUD-09: staff student writes validate identity and cents while preserving 
         error=>error.code==='22023')
     }
     assert.equal((await db.query('select count(*)::int as n from alumnos')).rows[0].n,1)
-    await db.query("insert into alumnos(nombre,apellido,dni,arancel_base,tutor_id) values(' New ',' Student ',' DNI ',10000,1)")
+    // DNIs are 7 or 8 digits since the Inscripciones 2027 identity migration.
+    await db.query("insert into alumnos(nombre,apellido,dni,arancel_base,tutor_id) values(' New ',' Student ',' 40123456 ',10000,1)")
     assert.deepEqual((await db.query('select nombre,apellido,dni,arancel_base from alumnos where id<>1')).rows,
-      [{nombre:'New',apellido:'Student',dni:'DNI',arancel_base:10000}])
+      [{nombre:'New',apellido:'Student',dni:'40123456',arancel_base:10000}])
   } finally { await db.close() }
 })
 
