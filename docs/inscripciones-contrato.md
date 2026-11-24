@@ -67,6 +67,8 @@ Same `{ success, code }` style as `cobrar_cuota_confirmada`.
 - `filas[].alumno` / `filas[].tutor`: `CREAR` when the DNI does not exist yet, `ACTUALIZAR` when it does. A guardian repeated in several rows (siblings) is counted once in `resumen` and shows the same action on each of its rows.
 - `errores[]`: `{ "fila": 9, "codigo": "E09", "mensaje": "El arancel \"0\" no es válido: debe ser un número mayor a cero." }`, with the exact FUN texts. Payload-level errors use `fila: null` (`F02` more than 2.000 rows, `F05` no rows).
 
+A malformed payload is a programming error, not a spreadsheet error: `filas` not an array, `nombreArchivo` outside 1–255 characters, `hashArchivo` not 64 lowercase hex, or a `fila` that is not an integer from 2 without leading zeros or is repeated. In those cases the call fails with SQLSTATE `22023` and nothing is written.
+
 ## Server-side validation
 
 The RPC trusts nothing from the payload and validates again with the same codes and messages as the front: E01–E09, E11–E17. `{valor}` is the normalized value it received. E10 (more than two decimals) appears only if `arancelCentavos` is not an integer.
@@ -75,7 +77,7 @@ The RPC trusts nothing from the payload and validates again with the same codes 
 
 1. Serialized with `pg_advisory_xact_lock`: two confirmations never interleave.
 2. Guardians first, in order of first appearance, then students in sheet order. Both are `INSERT … ON CONFLICT (dni) DO UPDATE` (R-05, R-06, R-10).
-3. Updated guardian: name, surname, email and phone are replaced. A blank email or phone in the sheet keeps the stored value, the same rule as account linking.
+3. Updated guardian: name, surname, email and phone are replaced. A blank email or phone in the sheet keeps the stored value, the same rule as account linking. Name, surname and email are equal on every row of a guardian (E15); the phone is not part of E15, so the first non-blank phone in sheet order is used.
 4. Updated student: name, surname, level, course, fee and guardian are replaced. `activo` is not changed (open question: reactivate?). New students are created with `activo = true`.
 5. `cuotas` and `pagos` are never touched (FUN section 2).
 6. Any failure rolls back everything (R-08).

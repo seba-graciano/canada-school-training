@@ -266,3 +266,45 @@ test('a failure in the middle of a confirmation rolls back every row', async () 
     assert.deepEqual(await snapshot(db), before)
   } finally { await db.close() }
 })
+
+test('a guardian phone typed only on a later sibling row is kept', async () => {
+  const db = await database()
+  try {
+    const carlos = telefono => tutor('23456789', 'Carlos', 'Gómez', 'c@g.com', telefono)
+    await as(db, adminId, 'admin')
+    await importar(db, payload([
+      fila(2, '45111222', 'Sofía', 'Gómez', 'Inicial', 'Inicial', 100, carlos(null)),
+      fila(3, '45111223', 'Tomás', 'Gómez', 'Inicial', 'Inicial', 100, carlos('11 5555-1234')),
+      fila(4, '45111224', 'Lucía', 'Gómez', 'Inicial', 'Inicial', 100, carlos('11 9999-0000')),
+    ]), false)
+    await db.exec('reset role')
+    // The first non-blank phone in sheet order wins; phones are not part of E15 (R-07).
+    assert.equal((await db.query("select telefono from tutores where dni='23456789'")).rows[0].telefono, '11 5555-1234')
+  } finally { await db.close() }
+})
+
+test('a confirmation does not swallow an error that uses the simulation SQLSTATE', async () => {
+  const db = await database()
+  try {
+    await db.exec(`create function public.raise_in001() returns trigger language plpgsql as $$
+      begin raise exception 'unexpected' using errcode = 'IN001'; end $$;
+      create trigger raise_in001 before insert on public.alumnos for each row execute function public.raise_in001();`)
+    const before = await snapshot(db)
+    await as(db, adminId, 'admin')
+    await assert.rejects(importar(db, payload([VALID_ROWS[0]]), false), error => error.code === 'IN001')
+    assert.deepEqual(await snapshot(db), before)
+  } finally { await db.close() }
+})
+
+test('row numbers must be unique as numbers and huge fees are a row error, not a crash', async () => {
+  const db = await database()
+  try {
+    await as(db, adminId, 'admin')
+    const dos = { ...VALID_ROWS[1], fila: '02' }
+    await assert.rejects(importar(db, payload([VALID_ROWS[0], dos]), true), error => error.code === '22023')
+    const enorme = JSON.parse(JSON.stringify(VALID_ROWS[0]).replace('18500000', '1e400'))
+    const result = await importar(db, payload([enorme]), true)
+    assert.equal(result.code, 'FILAS_INVALIDAS')
+    assert.equal(result.errores[0].codigo, 'E09')
+  } finally { await db.close() }
+})

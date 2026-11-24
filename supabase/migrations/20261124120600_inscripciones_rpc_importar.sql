@@ -2,9 +2,10 @@
 -- Contract: docs/inscripciones-contrato.md. Rule and message codes are those of FUN-2026-0147.
 
 -- Cents to the pesos text shown in messages: 18500055.5 -> '185000.555', 0 -> '0', -1 -> '-0.01'.
+-- trim_scale has no precision limit, so absurd values still become a row error instead of overflowing.
 create or replace function private.inscripciones_pesos(p_centavos numeric)
 returns text language sql immutable set search_path = '' as $$
-  select rtrim(rtrim((p_centavos / 100)::numeric(24, 4)::text, '0'), '.');
+  select trim_scale(p_centavos / 100)::text;
 $$;
 
 -- Validates every row again with the FUN codes and exact messages. The front already did it,
@@ -137,8 +138,9 @@ begin
   if jsonb_typeof(v_filas) is distinct from 'array'
     or coalesce(length(v_archivo), 0) not between 1 and 255
     or coalesce(v_hash, '') !~ '^[0-9a-f]{64}$'
+    -- No leading zeros, so '02' and 2 cannot pass the uniqueness check as different rows.
     or exists (select 1 from jsonb_array_elements(v_filas) e
-      where coalesce(e->>'fila', '') !~ '^[0-9]{1,7}$' or e->>'fila' in ('0', '1'))
+      where coalesce(e->>'fila', '') !~ '^[1-9][0-9]{0,6}$' or e->>'fila' = '1')
     or (select count(distinct e->>'fila') from jsonb_array_elements(v_filas) e) <> jsonb_array_length(v_filas) then
     raise exception 'Payload de importación inválido' using errcode = '22023';
   end if;
@@ -174,8 +176,16 @@ begin
   -- every write of the block while the PL/pgSQL variables keep what would have happened.
   begin
     -- Guardians first, in order of first appearance, so siblings reuse the same row (R-07).
+    -- Name, surname and email are equal on every row (E15). The phone is not part of E15, so the
+    -- first non-blank phone in sheet order is used: a phone typed on one sibling row is not lost.
     for r in
-      select x.dni, x.tutor
+      select x.dni, x.tutor,
+        (select nullif(btrim(coalesce(e2.value#>>'{tutor,telefono}', '')), '')
+           from jsonb_array_elements(v_filas) with ordinality as e2(value, ord)
+           where btrim(e2.value#>>'{tutor,dni}') = x.dni
+             and nullif(btrim(coalesce(e2.value#>>'{tutor,telefono}', '')), '') is not null
+           order by e2.ord
+           limit 1) as telefono
       from (
         select distinct on (btrim(e.value#>>'{tutor,dni}'))
           btrim(e.value#>>'{tutor,dni}') as dni, e.value->'tutor' as tutor, e.ord
@@ -188,7 +198,7 @@ begin
       insert into public.tutores as t (nombre, apellido, dni, email, telefono)
         values (btrim(r.tutor->>'nombre'), btrim(r.tutor->>'apellido'), r.dni,
           nullif(lower(btrim(coalesce(r.tutor->>'email', ''))), ''),
-          nullif(btrim(coalesce(r.tutor->>'telefono', '')), ''))
+          r.telefono)
         on conflict (dni) do update set
           nombre = excluded.nombre,
           apellido = excluded.apellido,
@@ -233,7 +243,10 @@ begin
       raise exception 'Import simulation rollback' using errcode = 'IN001';
     end if;
   exception when sqlstate 'IN001' then
-    null;
+    -- Only our own simulation rollback is expected; anything else with this code must fail loudly.
+    if not v_simular then
+      raise;
+    end if;
   end;
 
   if not v_simular then
