@@ -44,7 +44,7 @@ test('the error report has "Fila original" and "Errores" first and only the rows
       'Arancel mensual': 'mucho', 'DNI tutor': 44777999, 'Nombre tutor': 'Irene', 'Apellido tutor': 'Ramos', 'Email tutor': 'i@r.com' } },
     { fila: 27, celdas: { 'DNI alumno': '50222333', 'Nombre alumno': 'Renata', 'Apellido alumno': 'Acosta', Nivel: 'Primario',
       Curso: '3º Primaria', 'Arancel mensual': new Date(Date.UTC(2026, 2, 1)), 'DNI tutor': '45888000', 'Nombre tutor': 'Fernando',
-      'Apellido tutor': 'Acosta', 'Email tutor': 'f@a.com', 'Teléfono tutor': null } },
+      'Apellido tutor': 'Acosta', 'Email tutor': '', 'Teléfono tutor': null } },
   ]
   const [hoja] = armarReporteErrores(crudas, validarPlanilla(crudas, CATALOGO)).hojas
   assert.equal(hoja.nombre, 'Inscripciones')
@@ -54,6 +54,9 @@ test('the error report has "Fila original" and "Errores" first and only the rows
     'El DNI del alumno "abc" no es válido: debe tener 7 u 8 dígitos.\nFalta el nivel.\nFalta el curso.\nEl arancel "mucho" no es válido: debe ser un número mayor a cero.',
     'abc', 'Bruno', 'Ramos', '', '', 'mucho', 44777999, 'Irene', 'Ramos', 'i@r.com', null])
   assert.equal(hoja.filas[1][7], '01/03/2026')
+  // "todos los mensajes de la fila": the A01 warning travels with the errors of that row.
+  assert.equal(hoja.filas[1][1],
+    'El arancel "01/03/2026" no es válido: debe ser un número mayor a cero.\nEl tutor no tiene email: no va a poder recibir avisos por correo.')
 })
 
 test('file names', () => {

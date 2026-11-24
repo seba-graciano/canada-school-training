@@ -76,7 +76,8 @@ export function armarReporteErrores(filas: readonly FilaCruda[], resultado: Resu
       ],
       filas: conError.map(fila => [
         fila.fila,
-        fila.errores.map(error => error.mensaje).join('\n'),
+        // FUN section 8: "todos los mensajes de la fila", so warnings travel with the errors.
+        [...fila.errores, ...fila.avisos].map(mensaje => mensaje.mensaje).join('\n'),
         ...COLUMNAS.map(columna => valorReporte(crudas.get(fila.fila)?.celdas[columna])),
       ]),
     }],

@@ -84,7 +84,8 @@ export default function InscripcionesScreen({ onStudents, onAccounts, onImported
   const reiniciar = () => { setEstado({ tipo: 'inicial' }); setSoloErrores(false) }
   const vista = estado.tipo === 'vistaPrevia' || estado.tipo === 'confirmando' ? estado.vista : null
 
-  return <AppShell active="inscripciones" onStudents={() => { if (!ocupado) onStudents() }} onAccounts={onAccounts} onInscripciones={() => {}}>
+  return <AppShell active="inscripciones" onStudents={() => { if (!ocupado) onStudents() }}
+    onAccounts={onAccounts ? () => { if (!ocupado) onAccounts() } : undefined} onInscripciones={() => {}}>
     <div className="inscripciones-screen">
       <div className="page-heading">
         <div><h1>Inscripciones 2027</h1><p>Subí la planilla de reinscripción, revisá la vista previa y confirmá. No se guarda nada sin tu confirmación.</p></div>
