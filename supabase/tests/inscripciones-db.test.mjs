@@ -123,12 +123,16 @@ test('student and guardian DNIs are unique', async () => {
   } finally { await db.close() }
 })
 
-test('new DNIs must have 7 or 8 digits; legacy invalid guardians survive until reviewed', async () => {
+test('new DNIs must have 7 or 8 digits; the legacy test guardian is corrected and the check validated', async () => {
   const db = await database(async db => {
     await db.exec("insert into tutores(nombre,apellido,dni) values ('Legacy','Account','11111111111')")
   })
   try {
-    assert.equal((await db.query("select count(*)::int as n from tutores where dni='11111111111'")).rows[0].n, 1)
+    assert.deepEqual((await db.query('select nombre,dni from tutores')).rows, [{ nombre: 'Legacy', dni: '11111111' }])
+    const checks = (await db.query(`select conname,convalidated from pg_constraint
+      where conname in ('alumnos_dni_formato','tutores_dni_formato') order by conname`)).rows
+    assert.deepEqual(checks, [{ conname: 'alumnos_dni_formato', convalidated: true },
+      { conname: 'tutores_dni_formato', convalidated: true }])
     await assert.rejects(db.query("insert into tutores(nombre,apellido,dni) values ('New','Tutor','123456789')"),
       error => error.code === '23514')
     await assert.rejects(db.query(`insert into alumnos(nombre,apellido,dni,nivel,curso,tutor_id,arancel_base)
