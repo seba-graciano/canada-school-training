@@ -36,7 +36,7 @@ The front sends only the rows its own validation accepted: valid rows and valid 
 |---|---|
 | `nombreArchivo` | 1–255 characters. |
 | `hashArchivo` | SHA-256 of the file bytes, 64 lowercase hex characters. The front computes it with `crypto.subtle.digest`. |
-| `filas` | 1–2.000 items in sheet order (R-10, R-12). `fila` is the sheet row number (header is row 1) and is unique. |
+| `filas` | 1–1.999 items (2.000 sheet rows counting the header) in sheet order (R-10, R-12). `fila` is the sheet row number (header is row 1) and is unique. |
 | `arancelCentavos` | JSON integer greater than zero. Never a decimal number of pesos. |
 | `tutor.email`, `tutor.telefono` | Optional: `null` or omitted when the cell is empty. |
 
@@ -65,7 +65,7 @@ Same `{ success, code }` style as `cobrar_cuota_confirmada`.
 
 - `importacionPrevia`: the latest confirmed import with the same `hashArchivo`, or `null`. The screen turns it into the R-09 notice: "Este archivo ya fue importado el {fecha} por {usuario}. Si lo confirmás de nuevo no se va a duplicar nada." `usuario` is the importer's email (open question: name or email).
 - `filas[].alumno` / `filas[].tutor`: `CREAR` when the DNI does not exist yet, `ACTUALIZAR` when it does. A guardian repeated in several rows (siblings) is counted once in `resumen` and shows the same action on each of its rows.
-- `errores[]`: `{ "fila": 9, "codigo": "E09", "mensaje": "El arancel \"0\" no es válido: debe ser un número mayor a cero." }`, with the exact FUN texts. Payload-level errors use `fila: null` (`F02` more than 2.000 rows, `F05` no rows).
+- `errores[]`: `{ "fila": 9, "codigo": "E09", "mensaje": "El arancel \"0\" no es válido: debe ser un número mayor a cero." }`, with the exact FUN texts. Payload-level errors use `fila: null` (`F02` more than 1.999 rows, `F05` no rows).
 
 A malformed payload is a programming error, not a spreadsheet error: `filas` not an array, `nombreArchivo` outside 1–255 characters, `hashArchivo` not 64 lowercase hex, or a `fila` that is not an integer from 2 without leading zeros or is repeated. In those cases the call fails with SQLSTATE `22023` and nothing is written.
 
@@ -77,7 +77,7 @@ The RPC trusts nothing from the payload and validates again with the same codes 
 
 1. Serialized with `pg_advisory_xact_lock`: two confirmations never interleave.
 2. Guardians first, in order of first appearance, then students in sheet order. Both are `INSERT … ON CONFLICT (dni) DO UPDATE` (R-05, R-06, R-10).
-3. Updated guardian: name, surname, email and phone are replaced. A blank email or phone in the sheet keeps the stored value, the same rule as account linking. Name, surname and email are equal on every row of a guardian (E15); the phone is not part of E15, so the first non-blank phone in sheet order is used.
-4. Updated student: name, surname, level, course, fee and guardian are replaced. `activo` is not changed (open question: reactivate?). New students are created with `activo = true`.
+3. Updated guardian: name, surname, email and phone are replaced. Each field takes the first non-blank value among the guardian rows in sheet order; names prefer the capitalized variant (case-only differences are the same data). A blank email or phone keeps the stored value.
+4. Updated student: name, surname, level, course, fee and guardian are replaced, and the student becomes active again (activo = true). New students are created active.
 5. `cuotas` and `pagos` are never touched (FUN section 2).
 6. Any failure rolls back everything (R-08).
