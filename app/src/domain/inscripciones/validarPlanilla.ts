@@ -112,6 +112,28 @@ function agrupar(analisis: readonly Analisis[], clave: (a: Analisis) => string |
   return [...grupos].filter(([, filas]) => filas.length > 1)
 }
 
+// Every row of a guardian carries the same data: the first non-blank value in sheet order, and for
+// names the capitalized variant (client P4, P5). The RPC applies the same rule. A01 only when no row has an email.
+function unificarTutores(analisis: Analisis[]) {
+  const grupos = new Map<string, Analisis[]>()
+  for (const a of analisis) if (a.tutor) grupos.set(a.tutor.dni, [...(grupos.get(a.tutor.dni) ?? []), a])
+  for (const grupo of grupos.values()) {
+    const valores = (campo: 'nombre' | 'apellido' | 'email' | 'telefono') =>
+      grupo.map(a => a.tutor?.[campo] ?? '').filter(valor => valor !== '')
+    const primero = (campo: 'email' | 'telefono') => valores(campo)[0] ?? null
+    const capitalizado = (campo: 'nombre' | 'apellido') => {
+      const lista = valores(campo)
+      return lista.find(valor => valor[0] !== valor[0].toLowerCase()) ?? lista[0] ?? ''
+    }
+    const tutor = { dni: grupo[0].tutor!.dni, nombre: capitalizado('nombre'), apellido: capitalizado('apellido'),
+      email: primero('email'), telefono: primero('telefono') }
+    for (const a of grupo) {
+      a.tutor = tutor
+      if (tutor.email) a.avisos = a.avisos.filter(aviso => aviso.codigo !== 'A01')
+    }
+  }
+}
+
 /** Validates every row; E11 and E15 look at the whole sheet and mark every involved row. */
 export function validarPlanilla(filas: readonly FilaCruda[], catalogo: readonly CursoCatalogo[]): ResultadoPlanilla {
   const analisis = filas.map(fila => analizar(fila, catalogo))
@@ -121,11 +143,14 @@ export function validarPlanilla(filas: readonly FilaCruda[], catalogo: readonly 
     for (const a of grupo) a.errores.push(mensaje('E11', mensajesFila.E11(dni, numeros)))
   }
   for (const [dni, grupo] of agrupar(analisis, a => a.tutor?.dni ?? null)) {
-    const datos = new Set(grupo.map(a => JSON.stringify([a.tutor?.nombre, a.tutor?.apellido, a.tutor?.email])))
-    if (datos.size === 1) continue
+    // Client P4: names that differ only in case are the same. Client P5: a blank email is not a difference.
+    const nombres = new Set(grupo.map(a => `${a.tutor?.nombre}|${a.tutor?.apellido}`.toLowerCase()))
+    const emails = new Set(grupo.map(a => a.tutor?.email).filter(Boolean))
+    if (nombres.size === 1 && emails.size <= 1) continue
     const numeros = grupo.map(a => a.fila)
     for (const a of grupo) a.errores.push(mensaje('E15', mensajesFila.E15(dni, numeros)))
   }
+  unificarTutores(analisis)
 
   const resultado = analisis.map((a): ResultadoFila => {
     const errores = [...a.errores].sort((x, y) => x.codigo.localeCompare(y.codigo))

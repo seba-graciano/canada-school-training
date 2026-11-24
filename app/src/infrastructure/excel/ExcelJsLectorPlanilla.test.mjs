@@ -61,12 +61,12 @@ test('F01: only .xlsx files that really are workbooks', async () => {
   assert.deepEqual(await lector.leer({ nombre: 'trucho.xlsx', contenido: texto }), { ok: false, codigo: 'F01' })
 })
 
-test('F02: more than 2 MB or more than 2.000 data rows', async () => {
+test('F02: more than 2 MB or more than 2.000 sheet rows counting the header (client P7)', async () => {
   assert.deepEqual(await lector.leer({ nombre: 'grande.xlsx', contenido: new ArrayBuffer(2 * 1024 * 1024 + 1) }), { ok: false, codigo: 'F02' })
   const fila = ['45111222', 'A', 'B', 'Inicial', 'Inicial', 1, '23456789', 'C', 'D', '', '']
-  const muchas = await libro({ Inscripciones: [COLUMNAS, ...Array.from({ length: 2001 }, () => fila)] })
+  const muchas = await libro({ Inscripciones: [COLUMNAS, ...Array.from({ length: 2000 }, () => fila)] })
   assert.deepEqual(await lector.leer({ nombre: 'muchas.xlsx', contenido: muchas }), { ok: false, codigo: 'F02' })
-  const justas = await libro({ Inscripciones: [COLUMNAS, ...Array.from({ length: 2000 }, () => fila)] })
+  const justas = await libro({ Inscripciones: [COLUMNAS, ...Array.from({ length: 1999 }, () => fila)] })
   assert.equal((await lector.leer({ nombre: 'justas.xlsx', contenido: justas })).ok, true)
 })
 

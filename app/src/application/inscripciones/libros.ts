@@ -7,7 +7,7 @@ import { COLUMNAS, type Columna, type FilaCruda, type ResultadoPlanilla } from '
 export const NOMBRE_PLANTILLA = 'plantilla-inscripciones-2027.xlsx'
 export const nombreReporteErrores = (archivo: string) => `errores-${archivo.replace(/\.xlsx$/i, '')}.xlsx`
 
-const FILAS_CON_LISTAS = 2000
+const FILAS_CON_LISTAS = 1999
 
 // FUN-2026-0147 section 5, verbatim.
 const INSTRUCCIONES: readonly (readonly [Columna, string, string, string])[] = [
