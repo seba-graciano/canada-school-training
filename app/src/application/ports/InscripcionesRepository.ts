@@ -11,6 +11,8 @@ export type ResumenImportacion = {
 }
 export type ImportacionPrevia = { fecha: string, usuario: string }
 export type ErrorServidor = { fila: number | null, codigo: string, mensaje: string }
+/** One confirmed import (R-14). Only administrators can read them (FUN section 3). */
+export type RegistroImportacion = { id: number, fecha: string, usuario: string, nombreArchivo: string } & ResumenImportacion
 export type PayloadImportacion = { nombreArchivo: string, hashArchivo: string, filas: FilaImportable[] }
 
 export type RespuestaImportacion =
@@ -23,4 +25,5 @@ export type RespuestaImportacion =
 export interface InscripcionesRepository {
   cursos(): Promise<CursoCatalogo[]>
   importar(payload: PayloadImportacion, soloSimular: boolean): Promise<RespuestaImportacion>
+  historial(): Promise<RegistroImportacion[]>
 }

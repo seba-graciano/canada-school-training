@@ -1,6 +1,6 @@
 // InscripcionesRepository adapter on Supabase. Validates every answer before the app trusts it.
 import type {
-  ErrorServidor, ImportacionPrevia, InscripcionesRepository, PayloadImportacion, RespuestaImportacion, ResumenImportacion,
+  ErrorServidor, ImportacionPrevia, RegistroImportacion, InscripcionesRepository, PayloadImportacion, RespuestaImportacion, ResumenImportacion,
 } from '../../application/ports/InscripcionesRepository.ts'
 import type { CursoCatalogo } from '../../domain/inscripciones/celdas.ts'
 
@@ -9,7 +9,7 @@ export const ERROR_CONEXION = 'No se pudo conectar con el servidor. Intente nuev
 type Resultado = PromiseLike<{ data: unknown, error: unknown }>
 export type ClienteSupabase = {
   rpc(nombre: string, args: Record<string, unknown>): Resultado
-  from(tabla: string): { select(columnas: string): { order(columna: string): Resultado } }
+  from(tabla: string): { select(columnas: string): { order(columna: string, opciones?: { ascending: boolean }): Resultado } }
 }
 
 const esRegistro = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -73,5 +73,18 @@ export class SupabaseInscripcionesRepository implements InscripcionesRepository 
     const valida = resultado.error ? undefined : respuesta(resultado.data)
     if (!valida) throw new Error(ERROR_CONEXION)
     return valida
+  }
+
+  async historial(): Promise<RegistroImportacion[]> {
+    const { data, error } = await this.cliente.from('importaciones')
+      .select('id,fecha,usuario_email,nombre_archivo,alumnos_creados,alumnos_actualizados,tutores_creados,tutores_actualizados')
+      .order('fecha', { ascending: false })
+    const validos = Array.isArray(data) && data.every(r => esRegistro(r) && esEntero(r.id) && typeof r.fecha === 'string'
+      && typeof r.usuario_email === 'string' && typeof r.nombre_archivo === 'string'
+      && [r.alumnos_creados, r.alumnos_actualizados, r.tutores_creados, r.tutores_actualizados].every(esEntero))
+    if (error || !validos) throw new Error(ERROR_CONEXION)
+    return (data as Record<string, unknown>[]).map(r => ({ id: r.id as number, fecha: r.fecha as string, usuario: r.usuario_email as string,
+      nombreArchivo: r.nombre_archivo as string, alumnosCreados: r.alumnos_creados as number, alumnosActualizados: r.alumnos_actualizados as number,
+      tutoresCreados: r.tutores_creados as number, tutoresActualizados: r.tutores_actualizados as number }))
   }
 }
