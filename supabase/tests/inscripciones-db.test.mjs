@@ -192,3 +192,65 @@ test('guardian accounts with an invalid DNI are rejected without partial rows', 
     assert.equal((await db.query('select count(*)::int as n from perfiles where id=$1', [accountId])).rows[0].n, 0)
   } finally { await db.close() }
 })
+
+// T7: import log (R-14). Only the import RPC writes it; only admin reads it (FUN section 3).
+const secretaryId = '00000000-0000-4000-8000-000000000002'
+const tutorUserId = '00000000-0000-4000-8000-000000000003'
+const HASH = 'a'.repeat(64)
+
+async function asUser(db, id, role) {
+  await db.exec('reset role')
+  await db.query("select set_config('request.jwt.claims',$1,false)", [JSON.stringify({ sub: id, user_role: role, tutor_id: 1 })])
+  await db.exec('set role authenticated')
+}
+
+async function withImportLog(db) {
+  await db.exec(`insert into auth.users(id,email) values ('${secretaryId}','staff@example.test'),('${tutorUserId}','tutor@example.test');
+    insert into tutores(nombre,apellido,dni) values ('Own','Family','30111222');
+    insert into perfiles(id,user_role,tutor_id) values ('${secretaryId}','secretaria',null),('${tutorUserId}','tutor',1);`)
+  await db.query(`insert into importaciones(usuario_id,usuario_email,nombre_archivo,hash_archivo,
+    alumnos_creados,alumnos_actualizados,tutores_creados,tutores_actualizados) values ($1,'admin@example.test','inscripciones-2027.xlsx',$2,3,1,2,0)`,
+  [adminId, HASH])
+}
+
+test('only administrators can read the import log', async () => {
+  const db = await database()
+  try {
+    await withImportLog(db)
+    await asUser(db, adminId, 'admin')
+    const rows = (await db.query('select nombre_archivo,hash_archivo,alumnos_creados,alumnos_actualizados,tutores_creados,tutores_actualizados from importaciones')).rows
+    assert.deepEqual(rows, [{ nombre_archivo: 'inscripciones-2027.xlsx', hash_archivo: HASH,
+      alumnos_creados: 3, alumnos_actualizados: 1, tutores_creados: 2, tutores_actualizados: 0 }])
+    for (const [id, role] of [[secretaryId, 'secretaria'], [tutorUserId, 'tutor']]) {
+      await asUser(db, id, role)
+      assert.equal((await db.query('select count(*)::int as n from importaciones')).rows[0].n, 0)
+    }
+  } finally { await db.close() }
+})
+
+test('nobody writes the import log directly, not even administrators', async () => {
+  const db = await database()
+  try {
+    await withImportLog(db)
+    await asUser(db, adminId, 'admin')
+    await assert.rejects(db.query(`insert into importaciones(usuario_id,usuario_email,nombre_archivo,hash_archivo)
+      values ($1,'admin@example.test','x.xlsx',$2)`, [adminId, HASH]), error => error.code === '42501')
+    await assert.rejects(db.query('update importaciones set alumnos_creados=0'), error => error.code === '42501')
+    await assert.rejects(db.query('delete from importaciones'), error => error.code === '42501')
+    await db.exec('reset role')
+    assert.equal((await db.query('select alumnos_creados from importaciones')).rows[0].alumnos_creados, 3)
+  } finally { await db.close() }
+})
+
+test('the import log stores a SHA-256 hex fingerprint and non-negative counters', async () => {
+  const db = await database()
+  try {
+    await withImportLog(db)
+    await assert.rejects(db.query(`insert into importaciones(usuario_id,usuario_email,nombre_archivo,hash_archivo)
+      values ($1,'admin@example.test','x.xlsx','not-a-hash')`, [adminId]), error => error.code === '23514')
+    await assert.rejects(db.query(`insert into importaciones(usuario_id,usuario_email,nombre_archivo,hash_archivo,alumnos_creados)
+      values ($1,'admin@example.test','x.xlsx',$2,-1)`, [adminId, HASH]), error => error.code === '23514')
+    const fecha = (await db.query('select fecha from importaciones')).rows[0].fecha
+    assert.ok(fecha instanceof Date)
+  } finally { await db.close() }
+})

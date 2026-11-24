@@ -33,7 +33,7 @@ Sources: FUN-2026-0147 (rules R-xx, messages, acceptance table; prevails over TE
 - T4 | S4,S19 | inline | done locally | 20261124120100_inscripciones_catalogo_cursos.sql. Frontend lists already use the same official values (AdminDashboard.tsx:16-18), so the FK keeps staff creation working. Risk items 1,3.
 - T5 | S6,S19 | inline | done locally | 20261124120200_inscripciones_identidad_dni.sql. tutores_dni_formato stays NOT VALID until guardian 501 is reviewed; validar_alumno strips dots/spaces and says "El DNI debe tener 7 u 8 dígitos". Existing AUD-09 fixture changed from 'DNI' to a valid DNI. Risk item 1.
 - T6 | S19 | inline | done locally | 20261124120300_inscripciones_alta_tutor_existente.sql. Links the guardian with the same DNI (ON CONFLICT), only fills a missing email; invalid DNI → "Invalid account data". Full DB suite 48/48, unit 104/104. Risk item 2.
-- T7 | S11 | inline | pending | importaciones table + RLS. Risk item 2.
+- T7 | S11 | inline | done locally | 20261124120400_inscripciones_registro_importaciones.sql (usuario_id + usuario_email snapshot, SHA-256 hex check, counters ≥ 0, admin-only SELECT, no write grants). RED 3/3 → GREEN; full DB suite 51/51. Risk item 2.
 - T8 | S6–S11,S14,S18 | inline | pending | RPC importar_inscripciones + PGlite tests (TEC §6.4). Risk item 2.
 - T9 | S20 | user | pending | ADR Excel library (user writes it; AI may gather data only).
 - T10 | S4,S5,S7,S10,S13,S14,S17 | inline | pending | Domain: celdas, dinero, mensajes, validarPlanilla + table-driven tests (user writes acceptance tests).
