@@ -4,12 +4,23 @@ Reparto acordado: Julián hizo la **importación** (ítems 1, 2, 3 y 5 de la OC-
 
 ## 1. Desde dónde arrancar
 
-| PR | Contenido | Estado |
-|---|---|---|
-| #21 `feat/inscripciones-db` | Catálogo `public.cursos`, `UNIQUE(dni)` + CHECK, tabla `importaciones` | Pendiente de tu revisión |
-| `feat/inscripciones-import` (PR 2) | RPC de importación, dominio, puertos de Excel, adaptadores `exceljs`, pantalla | Se abre cuando se mergee #21 |
+La importación está **terminada, mergeada en `develop` y aplicada en Supabase** (Canada School Prueba):
 
-Creá tu rama desde `develop` **después de mergear los dos**: necesitás el puerto `EscritorPlanilla` y el lector, que están en el PR 2.
+| PR | Contenido |
+|---|---|
+| #21 | Catálogo `public.cursos`, `UNIQUE(dni)` + CHECK, tabla `importaciones` |
+| #22 | RPC de importación, dominio, puertos de Excel, adaptadores `exceljs`, pantalla Inscripciones |
+| #23 | Ajustes según las respuestas del cliente (ver "Reglas que ya decidió el cliente") |
+
+Creá tu rama desde `develop` actualizado: `git switch develop && git pull && git switch -c feat/inscripciones-export`.
+
+**Migraciones nuevas:** creálas con `npx supabase migration new <nombre>`, para que su timestamp quede después de `20261124130000`. No renombres migraciones ya aplicadas: el historial de Supabase se tuvo que reparar el 24/11 justamente por eso. Para aplicar en Supabase después del merge: `npx supabase migration list --linked` → `npx supabase db push --linked --dry-run` → `npx supabase db push --linked`. Si la API da un error 502, esperá un minuto y reintentá.
+
+### Reglas que ya decidió el cliente y te afectan
+
+- **Alumnos activos:** importar un alumno existente lo deja `activo = true`, porque no hay forma manual de cambiarlo. El padrón sin filtros exporta solo los activos (FUN §9).
+- **Datos del tutor:** se guardan con la forma con mayúscula ("Martín", no "martín"), y si un hermano tenía el email vacío se toma el del otro. El padrón muestra lo que está guardado, así que no tenés que hacer nada extra.
+- **Límite:** 2.000 filas contando el encabezado (1.999 alumnos). Si el padrón supera eso, no se puede reimportar de una sola vez (R-18): tenelo en cuenta en el test de ida y vuelta, o usá los filtros.
 
 ## 2. Qué ya existe y conviene reusar
 
@@ -65,11 +76,13 @@ El escritor ya guarda todo string como texto (nunca como fórmula), pero el FUN 
 3. **Ida y vuelta (R-18):** armar el padrón, escribirlo con `ExcelJsEscritorPlanilla`, leerlo con `ExcelJsLectorPlanilla` y pasarlo por `validarPlanilla`: tiene que dar 0 errores. El lector busca columnas por encabezado, así que las tres columnas extra se ignoran.
 4. Playwright: paso 6 del FUN §10 ("los alumnos importados aparecen, los montos se suman en Excel y los DNI se ven completos").
 
-## 4. Pregunta abierta para el cliente (es tuya)
+## 4. Preguntas abiertas para el cliente (son tuyas)
 
-"Deuda" y "Cuotas saldadas" no están definidas en el FUN:
-- ¿La deuda incluye recargos por mora?
-- "Cuotas saldadas", ¿es una cantidad o un monto?
+- **P11.** ¿La columna "Deuda" incluye los recargos por mora, o es solo el monto de las cuotas impagas?
+- **P12.** "Cuotas saldadas", ¿es la cantidad de cuotas pagadas o el monto pagado?
+- **P13.** R-17 pide exportar con apóstrofo los textos que empiezan con `=`, `+`, `-` o `@`, y R-18 pide que el padrón se pueda reimportar sin errores. Si se reimporta, el apóstrofo queda guardado en el nombre. ¿Qué prefieren? (Ver 3.3.)
+
+Las respuestas del cliente a las preguntas de la importación están en `odd/tasks/inscripciones-2027.md` (entrada L27 del log).
 
 ## 5. Cómo correr los tests
 
