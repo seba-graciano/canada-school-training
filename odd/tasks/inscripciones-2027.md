@@ -27,14 +27,14 @@ Sources: FUN-2026-0147 (rules R-xx, messages, acceptance table; prevails over TE
 
 ## Tasks
 
-- T1 | S18 | inline | pending | Front/RPC JSON contract document, agreed with Federico.
+- T1 | S18 | inline | done | docs/inscripciones-contrato.md. Under the L2 split both sides of the contract belong to Julián; Federico only consumes the catalog and identity.
 - T2 | S19 | inline | done | supabase/audits/inscripciones-2027-auditoria.sql. Local proof: 5 injected dirty rows detected, 800 rows before/after. Hosted result in L8.
 - T3 | S4,S5,S19 | inline | done locally | 20261124120000_inscripciones_limpieza_datos.sql. RED 9/11 → GREEN 11/11 (supabase/tests/inscripciones-db.test.mjs). Seed probe: 254 Inicial → Inicial, cuotas/pagos hash unchanged. Risk item 1.
 - T4 | S4,S19 | inline | done locally | 20261124120100_inscripciones_catalogo_cursos.sql. Frontend lists already use the same official values (AdminDashboard.tsx:16-18), so the FK keeps staff creation working. Risk items 1,3.
 - T5 | S6,S19 | inline | done locally | 20261124120200_inscripciones_identidad_dni.sql. tutores_dni_formato stays NOT VALID until guardian 501 is reviewed; validar_alumno strips dots/spaces and says "El DNI debe tener 7 u 8 dígitos". Existing AUD-09 fixture changed from 'DNI' to a valid DNI. Risk item 1.
 - T6 | S19 | inline | done locally | 20261124120300_inscripciones_alta_tutor_existente.sql. Links the guardian with the same DNI (ON CONFLICT), only fills a missing email; invalid DNI → "Invalid account data". Full DB suite 48/48, unit 104/104. Risk item 2.
 - T7 | S11 | inline | done locally | 20261124120400_inscripciones_registro_importaciones.sql (usuario_id + usuario_email snapshot, SHA-256 hex check, counters ≥ 0, admin-only SELECT, no write grants). RED 3/3 → GREEN; full DB suite 51/51. Risk item 2.
-- T8 | S6–S11,S14,S18 | inline | pending | RPC importar_inscripciones + PGlite tests (TEC §6.4). Risk item 2.
+- T8 | S6–S11,S14,S18 | inline | done locally, verification pending | 20261124120600_inscripciones_rpc_importar.sql + supabase/tests/inscripciones-rpc.test.mjs. RED 9/9 → GREEN 9/9; DB 62/62, unit 104/104. Risk item 2.
 - T9 | S20 | user | pending | ADR Excel library (user writes it; AI may gather data only).
 - T10 | S4,S5,S7,S10,S13,S14,S17 | inline | pending | Domain: celdas, dinero, mensajes, validarPlanilla + table-driven tests (user writes acceptance tests).
 - T11 | S10,S13,S17 | inline | pending | Reader adapter + fixture integration test.
@@ -60,4 +60,6 @@ Sources: FUN-2026-0147 (rules R-xx, messages, acceptance table; prevails over TE
 - L12: Hosted deployment waits for PR review/merge into develop: the test project is shared by the team, so unmerged constraints would affect teammates' branches. Documented procedure (docs/tutor-accounts.md:110): supabase migration list --linked; supabase db push --linked --dry-run; then db push.
 - L13: Independent verifier on 95556cc: FAIL with one blocker. S4, S5, S6, S19 and T2-T5 PASS; DB 48/48, unit 104/104; full-seed cuotas/pagos md5 unchanged; cursos grants correct; provisioning matches base in 17 scenarios. B1: linking an imported guardian dropped the typed name and phone and still reported success. G1: the Inicial collapse kept no backup. Advisories: the composite FK and UNIQUE skip NULLs; the create-account edge function maps the new 23505/22023 errors to a generic 500 and still accepts DNIs up to 20 chars (create-tutor-account/handler.ts:66; out of scope here).
 - L14: Correction batch. B1: linking now applies the typed nombre/apellido/email like an import update (R-06), and a blank phone keeps the stored one (replaces the L9 assumption). G1: the cleanup writes private.inscripciones_cursos_respaldo(alumno_id, curso_anterior) before replacing legacy courses. Migrations edited in place because they were never applied anywhere. RED 3/3 → GREEN; DB 53/53; seed probe unchanged.
-- Next: recheck of B1/G1 only; push + PR; T8 (RPC).
+- L15: Recheck at dccbbfa: B1 PASS, G1 PASS (800 backup rows unreachable by anon/authenticated; cuotas/pagos md5 unchanged); DB 53/53. Slice 1 (984386a..dccbbfa) is closed. Local branch feat/inscripciones-db points at dccbbfa for PR 1 to develop; work continues on feat/inscripciones-import.
+- L16: T8 decisions: errors within a row are ordered by code (matches FUN row 26); guardians upsert first in order of first appearance and are counted once; a blank email/phone keeps the stored value (same rule as account linking); existing students keep activo; simulation raises IN001 inside a sub-block so writes roll back while counters survive; structural payload problems raise 22023; anon cannot execute (42501), tutor gets SIN_PERMISO. Simulations consume serial ids (gaps only; order is preserved).
+- Next: independent verifier for T8; push slice 1; T10 domain.
