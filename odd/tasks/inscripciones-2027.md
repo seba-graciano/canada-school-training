@@ -42,7 +42,7 @@ Sources: FUN-2026-0147 (rules R-xx, messages, acceptance table; prevails over TE
 - T13 | S9,S18 | inline | done (9068863) | InscripcionesRepository port, SupabaseInscripcionesRepository, previsualizarImportacion/confirmarImportacion. RED → GREEN 12/12; tsc clean.
 - T14 | S2,S15 | inline | done | presentation/inscripciones/{InscripcionesScreen,VistaPrevia,dependencias}.tsx + inscripciones.css; AppShell entry for admin and secretaria only; AdminDashboard and AccountScreen navigation. Build: exceljs is a separate 256 KB gzip chunk.
 - T15 | S17 | inline | done | app/tests/inscripciones.test.mjs (Playwright, fake backend per the contract): FUN §10 steps 1-5, template download, F01, and tutor without the option (R-01, UI side; the RPC side is in supabase/tests). 4/4.
-- T16 | S1 | inline | pending | Export handoff .md for Federico.
+- T16 | S1 | inline | done | docs/inscripciones-exportacion-handoff.md: what exists and what to reuse, the missing RPC, builder, screen and tests, the R-17/R-18 tension, and open question 4.
 
 ## Log
 
