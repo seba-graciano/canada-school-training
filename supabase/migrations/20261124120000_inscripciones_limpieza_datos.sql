@@ -13,6 +13,20 @@ update public.tutores
 
 -- Legacy rows store 'Curso N' for every level. The official course depends on the level.
 -- Inicial has a single official course, so every legacy Inicial course becomes 'Inicial'.
+-- That loses the legacy number, so keep it in a private backup the API cannot reach.
+create table private.inscripciones_cursos_respaldo (
+  alumno_id integer primary key,
+  curso_anterior varchar not null,
+  respaldado_en timestamptz not null default now()
+);
+revoke all on private.inscripciones_cursos_respaldo from public, anon, authenticated;
+
+insert into private.inscripciones_cursos_respaldo (alumno_id, curso_anterior)
+  select id, curso
+  from public.alumnos
+  where curso ~ '^Curso [1-6]$'
+    and nivel in ('Inicial', 'Primario', 'Secundario');
+
 update public.alumnos
   set curso = case nivel
     when 'Inicial' then 'Inicial'

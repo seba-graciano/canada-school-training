@@ -1,6 +1,7 @@
 -- Inscripciones 2027 (OC-2026-0147, TEC 6.2 step 4): guardians can now exist before their account
 -- (imported from the enrollment sheet). Creating the account links the guardian with the same DNI
--- instead of inserting a duplicate, which UNIQUE(dni) would reject.
+-- instead of inserting a duplicate, which UNIQUE(dni) would reject, and updates it with the
+-- account data.
 -- Only the tutor branch changes; role checks and staff accounts are unchanged from 0017.
 create or replace function private.provision_tutor_account()
 returns trigger
@@ -72,9 +73,14 @@ begin
       on conflict (dni) do nothing
       returning id into v_tutor_id;
     if v_tutor_id is null then
-      -- Imported guardian: keep its data and only fill a missing contact email.
+      -- Imported guardian: apply the data typed for the account, as an import update
+      -- does (R-06), so nothing the administrator entered is silently dropped.
+      -- A blank phone keeps the stored one.
       update public.tutores
-        set email = coalesce(email, lower(new.email))
+        set nombre = trim(v_data->>'nombre'),
+            apellido = trim(v_data->>'apellido'),
+            email = lower(new.email),
+            telefono = coalesce(nullif(trim(v_data->>'telefono'), ''), telefono)
         where dni = v_dni
         returning id into v_tutor_id;
     end if;

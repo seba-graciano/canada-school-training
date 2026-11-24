@@ -47,10 +47,10 @@ async function asAdmin(db) {
   await db.exec('set role authenticated')
 }
 
-async function provisionTutor(db, dni) {
+async function provisionTutor(db, dni, metadata = {}) {
   return db.query('insert into auth.users(id,email,raw_app_meta_data,raw_user_meta_data) values ($1,$2,$3,$4)',
     [accountId, 'Family@Example.test', { provision_account_by: adminId, provision_account_role: 'tutor' },
-      { nombre: 'Laura', apellido: 'Pérez', dni, telefono: '1144445555' }])
+      { nombre: 'Laura', apellido: 'Pérez', dni, telefono: '1144445555', ...metadata }])
 }
 
 const legacyFamily = async db => {
@@ -76,6 +76,18 @@ test('cleanup normalizes legacy DNIs and maps "Curso N" to the official course o
       { dni: '45111222', nivel: 'Primario', curso: '1º Primaria' },
     ])
     assert.equal((await db.query('select dni from tutores')).rows[0].dni, '28111333')
+  } finally { await db.close() }
+})
+
+test('cleanup keeps a private backup of every replaced legacy course', async () => {
+  const db = await database(legacyFamily)
+  try {
+    const { rows } = await db.query('select alumno_id,curso_anterior from private.inscripciones_cursos_respaldo order by alumno_id')
+    assert.deepEqual(rows, [
+      { alumno_id: 1, curso_anterior: 'Curso 5' },
+      { alumno_id: 2, curso_anterior: 'Curso 3' },
+      { alumno_id: 3, curso_anterior: 'Curso 1' },
+    ])
   } finally { await db.close() }
 })
 
@@ -168,13 +180,25 @@ test('creating the account of an imported guardian links the existing row instea
   } finally { await db.close() }
 })
 
-test('linking keeps an imported guardian email that already exists', async () => {
+test('linking applies the data typed for the account, like an import update (R-06)', async () => {
   const db = await database(async db => {
-    await db.exec("insert into tutores(nombre,apellido,dni,email) values ('Laura','Pérez','30111222','laura@school.test')")
+    await db.exec("insert into tutores(nombre,apellido,dni,email,telefono) values ('Imp','Orted','30555666',null,null)")
   })
   try {
-    await provisionTutor(db, '30111222')
-    assert.equal((await db.query('select email from tutores')).rows[0].email, 'laura@school.test')
+    await provisionTutor(db, '30555666', { nombre: ' Laura ', apellido: 'Pérez', telefono: ' 1144 ' })
+    const tutors = (await db.query('select nombre,apellido,dni,email,telefono from tutores')).rows
+    assert.deepEqual(tutors, [{ nombre: 'Laura', apellido: 'Pérez', dni: '30555666', email: 'family@example.test', telefono: '1144' }])
+  } finally { await db.close() }
+})
+
+test('linking without a typed phone keeps the stored phone', async () => {
+  const db = await database(async db => {
+    await db.exec("insert into tutores(nombre,apellido,dni,email,telefono) values ('Laura','Pérez','30111222','laura@school.test','1155556666')")
+  })
+  try {
+    await provisionTutor(db, '30111222', { telefono: '' })
+    assert.deepEqual((await db.query('select email,telefono from tutores')).rows,
+      [{ email: 'family@example.test', telefono: '1155556666' }])
   } finally { await db.close() }
 })
 
