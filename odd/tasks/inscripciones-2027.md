@@ -37,11 +37,11 @@ Sources: FUN-2026-0147 (rules R-xx, messages, acceptance table; prevails over TE
 - T8 | S6–S11,S14,S18 | inline | done locally, verification pending | 20261124120600_inscripciones_rpc_importar.sql + supabase/tests/inscripciones-rpc.test.mjs. RED 9/9 → GREEN 9/9; DB 62/62, unit 104/104. Risk item 2.
 - T9 | S20 | inline | done (draft for the team to restate) | docs/adr/001-libreria-excel.md: exceljs 4.4.0 pinned; npm audit shows only the 2 documented moderate uuid findings (unreachable). Risk item 5 (dependency).
 - T10 | S4,S5,S7,S10,S13,S14,S17 | inline | done | app/src/domain/inscripciones/{mensajes,celdas,dinero,validarPlanilla}.ts + 3 test files. RED (modules missing) → GREEN 16/16; the FUN §10 table passes verbatim row by row with summary 11/1/17/1/30. Unit 120/120, tsc and oxlint clean. Acceptance tests written by the AI at the user's request (L18); TEC §10 asks the team to own them.
-- T11 | S10,S13,S17 | inline | pending | Reader adapter + fixture integration test.
-- T12 | S3,S16 | inline | pending | Base writer: template + error report.
-- T13 | S9,S18 | inline | pending | Ports, use cases, Supabase repository (import side).
-- T14 | S2,S15 | inline | pending | Inscripciones screen + menu entry.
-- T15 | S17 | inline | pending | Playwright scenario (FUN §10 steps 1–5, 7).
+- T11 | S10,S13,S17 | inline | done (db1c8f5) | LectorPlanilla port + ExcelJsLectorPlanilla; fixture at app/tests/fixtures. RED (module missing) → GREEN 6/6; the real client file, read and validated, gives 11/1/17/1/30.
+- T12 | S3,S16 | inline | done (c9e94ec) | EscritorPlanilla port (library-agnostic workbook) + ExcelJsEscritorPlanilla + application/inscripciones/libros.ts. Builders RED → GREEN 5/5; writer 6/6 (writer test and adapter written together, RED not observed).
+- T13 | S9,S18 | inline | done (9068863) | InscripcionesRepository port, SupabaseInscripcionesRepository, previsualizarImportacion/confirmarImportacion. RED → GREEN 12/12; tsc clean.
+- T14 | S2,S15 | inline | done | presentation/inscripciones/{InscripcionesScreen,VistaPrevia,dependencias}.tsx + inscripciones.css; AppShell entry for admin and secretaria only; AdminDashboard and AccountScreen navigation. Build: exceljs is a separate 256 KB gzip chunk.
+- T15 | S17 | inline | done | app/tests/inscripciones.test.mjs (Playwright, fake backend per the contract): FUN §10 steps 1-5, template download, F01, and tutor without the option (R-01, UI side; the RPC side is in supabase/tests). 4/4.
 - T16 | S1 | inline | pending | Export handoff .md for Federico.
 
 ## Log
@@ -67,4 +67,8 @@ Sources: FUN-2026-0147 (rules R-xx, messages, acceptance table; prevails over TE
 - L19: Domain decisions: the courses catalog is a parameter (read from public.cursos), never hard-coded; course variants match by a folded key ('3º Primaria', '3o primaria', '3 PRIMARIA', '3° Primaria' → '3 primaria'); Argentine text requires valid thousand grouping, so text '185000.5' is E09 while the number 185000.5 is valid; Excel dates are expected as UTC midnight and shown dd/mm/yyyy; errors within a row are sorted by code, the same as the RPC; E15 compares trimmed name, surname and lowercase email, case-sensitive for names.
 - L20: Independent verifier on 443b0df: FAIL with one blocker. S6, S8, S9, S10, S11, S14 and S18 PASS; DB 62/62; nothing found that passes validation and then crashes the write; extra payload keys ignored; usuario cannot be forged. B1: a guardian phone typed only on a later sibling row was dropped (DISTINCT ON kept the first row). Advisories: an IN001 raised by a trigger during a confirmation was swallowed; a 1e400 fee overflowed numeric(24,4); fila '02' and 2 both passed.
 - L21: Correction batch. B1: the first non-blank phone in sheet order is used (decision: the phone is not part of E15 per R-07). The IN001 handler re-raises when confirming; pesos uses trim_scale; fila rejects leading zeros. The contract documents the 22023 structural errors. RED 3/3 → GREEN; DB 65/65.
-- Next: recheck B1 only; T9 ADR (library choice blocks T11/T12).
+- L22: Recheck at 3ca68f4: B1 and advisories 1, 2, 4 PASS; DB 65/65. A residual advisory remains: an IN001 raised by a trigger during a simulation is swallowed and gives an incomplete preview, but nothing is written.
+- L23: ADR evidence (2026-11-24, scratch installs): exceljs 4.4.0 has 2 moderate uuid findings, 194 deps, prebuilt browser bundle; xlsx 0.18.5 has 1 high finding; read/write-excel-file have 0 findings but drop-downs need a 2026-06 third-party plugin. Both exceljs and read-excel-file read the fixture correctly.
+- L24: Full suites: unit 149/149, DB 65/65, UI 37/38. The failing UI test "redesigned screens fit desktop, tablet and mobile with locally resolved assets" (accounts: SVG slot geometry, src "") fails identically on the code before the UI changes (checked with a temporary stash), so it is pre-existing. oxlint shows 3 warnings, none in new code. The table renders up to 2.000 rows without pagination (TEC 7.4 asks to measure first).
+- L25: Finding while writing T15: a fee cell with a date format keeps turning typed numbers into dates (row 27); the domain correctly reports E09, and the instructions could warn about it.
+- Next: T16 export handoff; push feat/inscripciones-import and open PR 2 once PR #21 is merged.

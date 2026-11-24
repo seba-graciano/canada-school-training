@@ -27,9 +27,9 @@ const roleDescriptions: Record<AccountRole, string> = {
 }
 const roles: AccountRole[] = ['admin', 'secretaria', 'tutor']
 
-type Props = { onBack: () => void; onCreated: (role: AccountRole) => void }
+type Props = { onBack: () => void; onCreated: (role: AccountRole) => void; onInscripciones?: () => void }
 
-export default function AccountScreen({ onBack, onCreated }: Props) {
+export default function AccountScreen({ onBack, onCreated, onInscripciones }: Props) {
   const { user, userRole } = useApp()
   const [form, setForm] = useState(emptyForm)
   const [role, setRole] = useState<AccountRole>('tutor')
@@ -200,7 +200,8 @@ export default function AccountScreen({ onBack, onCreated }: Props) {
   return (
     <>
       <div className="account-app-background" inert={Boolean(deleteTarget)}>
-        <AppShell active="accounts" onStudents={() => { if (!loading) onBack() }}>
+        <AppShell active="accounts" onStudents={() => { if (!loading) onBack() }}
+          onInscripciones={onInscripciones ? () => { if (!loading) onInscripciones() } : undefined}>
       <div className="account-screen">
         <div className="page-heading account-heading">
           <div>

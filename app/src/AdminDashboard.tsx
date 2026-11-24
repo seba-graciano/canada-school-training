@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { supabase } from './supabase'
 import { useApp } from './AppContext'
 import AccountScreen from './accounts/AccountScreen'
+import InscripcionesScreen from './presentation/inscripciones/InscripcionesScreen'
 import AppShell from './ui/AppShell'
 import DesignIcon from './ui/DesignIcon'
 import PaymentScreen from './payments/PaymentScreen'
@@ -58,6 +59,7 @@ export default function AdminDashboard() {
   const [draftFilters, setDraftFilters] = useState({ level: '', course: '', debt: '' })
   const [currentPage, setCurrentPage] = useState(1)
   const [accountScreen, setAccountScreen] = useState(false)
+  const [inscripcionesScreen, setInscripcionesScreen] = useState(false)
   const [student, setStudent] = useState<Student | null>(null)
   const [paymentBusy, setPaymentBusy] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -193,9 +195,13 @@ export default function AdminDashboard() {
 
   function back() { if (!paymentBusy) setStudent(null) }
   const currentStudent = student && (alumnos.find(item => item.id === student.id) ?? student)
-  if (accountScreen && userRole === 'admin') return <AccountScreen onBack={() => setAccountScreen(false)} onCreated={role => { if (role === 'tutor') void cargarTutores() }} />
+  const openInscripciones = () => { setAccountScreen(false); setInscripcionesScreen(true) }
+  if (inscripcionesScreen && canManage) return <InscripcionesScreen onStudents={() => setInscripcionesScreen(false)}
+    onAccounts={() => { setInscripcionesScreen(false); setAccountScreen(true) }} onImported={() => { void cargar(); void cargarTutores() }} />
+  if (accountScreen && userRole === 'admin') return <AccountScreen onBack={() => setAccountScreen(false)} onInscripciones={openInscripciones} onCreated={role => { if (role === 'tutor') void cargarTutores() }} />
 
-  return <AppShell active="students" section={student ? 'Cobro' : undefined} onStudents={back} onAccounts={() => { if (!paymentBusy) { setStudent(null); setAccountScreen(true) } }}>
+  return <AppShell active="students" section={student ? 'Cobro' : undefined} onStudents={back} onAccounts={() => { if (!paymentBusy) { setStudent(null); setAccountScreen(true) } }}
+    onInscripciones={canManage ? () => { if (!paymentBusy) { setStudent(null); openInscripciones() } } : undefined}>
     {currentStudent ? <PaymentScreen key={currentStudent.id} student={currentStudent} canCollect={canManage} onBack={back} onRefresh={() => { void cargar() }} onBusy={setPaymentBusy} /> : <>
       <div className="page-heading"><div><h1>{userRole === 'tutor' ? 'Mis alumnos' : 'Administración de alumnos'}</h1><p>Consultá la situación de cada alumno{canManage ? ' y registrá sus pagos.' : ' y el detalle de sus cuotas.'}</p></div>
         {canManage && <button type="button" className="btn" onClick={() => setShowForm(previous => !previous)} aria-expanded={showForm} aria-controls="student-form"><DesignIcon name="plus" />Nuevo alumno</button>}
